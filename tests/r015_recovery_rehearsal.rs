@@ -347,3 +347,37 @@ fn rehearse_survives_a_checkpoint_containing_a_provenance_receipt() {
         .assert()
         .success();
 }
+
+#[test]
+#[serial]
+fn rehearsal_does_not_stage_into_the_temporary_directory_git_repository() {
+    let workspace = populated_workspace();
+    let temporary_root = tempfile::tempdir().unwrap();
+    let root = temporary_root.path();
+    assert!(std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .current_dir(root)
+        .status()
+        .unwrap()
+        .success());
+    fs::write(root.join("sentinel.txt"), b"staged sentinel\n").unwrap();
+    assert!(std::process::Command::new("git")
+        .args(["add", "--", "sentinel.txt"])
+        .current_dir(root)
+        .status()
+        .unwrap()
+        .success());
+    let index_path = root.join(".git").join("index");
+    let original_index = fs::read(&index_path).unwrap();
+
+    Command::cargo_bin("bead")
+        .unwrap()
+        .args(["doctor", "--rehearse"])
+        .current_dir(workspace.path())
+        .env("TMP", root)
+        .env("TEMP", root)
+        .assert()
+        .success();
+
+    assert_eq!(fs::read(index_path).unwrap(), original_index);
+}

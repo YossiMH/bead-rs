@@ -1,24 +1,10 @@
-//! Run with rustc --test on the real host filesystem; no mocks or stubs.
+//! Check checkpoint durability on the host filesystem.
 use bead_rs::service::checkpoint_io;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
-
-fn directory(case: &str) -> PathBuf {
-    let path = PathBuf::from(std::env::var_os("BEAD_TEST_TMP").expect("BEAD_TEST_TMP required"))
-        .join(format!(
-            "{case}-{}-{}",
-            std::process::id(),
-            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
-        ));
-    fs::create_dir_all(&path).expect("create isolated test directory");
-    path
-}
-
 #[test]
 fn closed_written_checkpoint_can_flush_without_changing_its_bytes() {
-    let path = directory("flush-closed-file").join("checkpoint.jsonl");
+    let dir = tempfile::tempdir().expect("create isolated test directory");
+    let path = dir.path().join("checkpoint.jsonl");
     let expected = b"checkpoint contains real committed tasks and events\n";
     fs::write(&path, expected).expect("write checkpoint");
     checkpoint_io::sync_written_file(&path)
@@ -28,9 +14,9 @@ fn closed_written_checkpoint_can_flush_without_changing_its_bytes() {
 
 #[test]
 fn atomic_checkpoint_publication_replaces_the_previous_pointer_and_flushes() {
-    let dir = directory("publish-pointer");
-    let source = dir.join("current.tmp");
-    let destination = dir.join("current.json");
+    let dir = tempfile::tempdir().expect("create isolated test directory");
+    let source = dir.path().join("current.tmp");
+    let destination = dir.path().join("current.json");
     fs::write(&destination, b"previous checkpoint\n").expect("previous pointer");
     fs::write(&source, b"complete next checkpoint\n").expect("next pointer");
     checkpoint_io::replace_durable_file(&source, &destination)
@@ -47,10 +33,10 @@ fn atomic_checkpoint_publication_replaces_the_previous_pointer_and_flushes() {
 
 #[test]
 fn publication_failure_preserves_the_previous_checkpoint() {
-    let dir = directory("failed-publication");
-    let destination = dir.join("current.json");
+    let dir = tempfile::tempdir().expect("create isolated test directory");
+    let destination = dir.path().join("current.json");
     fs::write(&destination, b"known good checkpoint\n").expect("previous pointer");
-    let result = checkpoint_io::replace_durable_file(&dir.join("missing.tmp"), &destination);
+    let result = checkpoint_io::replace_durable_file(&dir.path().join("missing.tmp"), &destination);
     assert_eq!(
         result.expect_err("missing source must fail").kind(),
         std::io::ErrorKind::NotFound

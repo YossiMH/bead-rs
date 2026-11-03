@@ -5,10 +5,14 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::Path;
 
+/// Flush a closed checkpoint file using a write-capable handle.
+/// Returns the filesystem error if the file cannot be opened or flushed.
 pub fn sync_written_file(path: &Path) -> io::Result<()> {
     OpenOptions::new().write(true).open(path)?.sync_all()
 }
 
+/// Flush directory entries after checkpoint files are created, replaced, or removed.
+/// Returns the filesystem error if the directory cannot be opened or flushed.
 pub fn sync_directory(path: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
@@ -28,6 +32,8 @@ pub fn sync_directory(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Rename a checkpoint file and flush its destination directory.
+/// A directory flush failure is returned after the rename has already occurred.
 pub fn replace_durable_file(source: &Path, destination: &Path) -> io::Result<()> {
     fs::rename(source, destination)?;
     sync_directory(
