@@ -22,7 +22,8 @@ use crate::cli::ImportMode;
 use crate::error::{Error, Result};
 use crate::model::Issue;
 use crate::service::checkpoint::{
-    import_forensic_checkpoint, publish_forensic_checkpoint, CheckpointConfig, CheckpointRecord,
+    import_forensic_checkpoint, load_checkpoint_config, publish_forensic_checkpoint,
+    CheckpointRecord,
 };
 use crate::service::doctor;
 use crate::store::{SqliteStore, Store};
@@ -206,6 +207,7 @@ pub fn run_recovery_rehearsal() -> Result<RecoveryRehearsalReport> {
         "uuid": rehearsal_uuid,
         "prefix": "rehearsal",
         "created_at": created_at,
+        "checkpoint": { "auto_flush": false, "auto_stage": false },
     });
     fs::write(temp_beads_dir.join("config.json"), temp_config.to_string())
         .context("Failed to write temporary workspace config")?;
@@ -276,7 +278,7 @@ pub fn run_recovery_rehearsal() -> Result<RecoveryRehearsalReport> {
     // recorded configuration and thresholds would select, not a forced one.
     publish_forensic_checkpoint(
         &mut temp_store,
-        &CheckpointConfig::default(),
+        &load_checkpoint_config(&temp_beads_dir)?,
         &temp_beads_dir,
     )
     .context("Failed to export checkpoint from temporary workspace")?;

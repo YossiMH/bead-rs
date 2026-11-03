@@ -10,6 +10,7 @@ pub mod capabilities;
 pub mod changes;
 pub mod checkpoint;
 pub mod checkpoint_configure;
+pub mod checkpoint_io;
 pub mod claim;
 pub mod comments;
 pub mod comparison;

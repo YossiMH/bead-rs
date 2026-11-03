@@ -73,6 +73,7 @@ use crate::model::redaction::{
 };
 use crate::model::Issue;
 use crate::profile::ProfileLossReport;
+use crate::service::checkpoint_io;
 use crate::service::git::{self, GitReachability};
 use crate::service::git_stage;
 use crate::service::resource_locks::resource_keys_from_value;
@@ -8185,17 +8186,10 @@ fn publish_forensic_checkpoint_inner(
         std::fs::copy(&current_pointer_path, &previous_temp)?;
 
         // Sync the temp file
-        let temp_file = File::open(&previous_temp)?;
-        temp_file.sync_all()?;
-        drop(temp_file);
+        checkpoint_io::sync_written_file(&previous_temp)?;
 
         // Atomic rename
-        std::fs::rename(&previous_temp, &previous_pointer_path)?;
-
-        // Sync parent directory
-        let checkpoint_dir_file = File::open(&checkpoint_dir)?;
-        checkpoint_dir_file.sync_all()?;
-        drop(checkpoint_dir_file);
+        checkpoint_io::replace_durable_file(&previous_temp, &previous_pointer_path)?;
 
         changed_paths.push("previous.json".to_string());
 
@@ -8384,9 +8378,7 @@ fn publish_forensic_checkpoint_inner(
             Ok(()) => {
                 changed_paths.push("forensic.jsonl".to_string());
                 staged_deletions.push("forensic.jsonl".to_string());
-                if let Ok(directory) = File::open(&checkpoint_dir) {
-                    let _ = directory.sync_all();
-                }
+                let _ = checkpoint_io::sync_directory(&checkpoint_dir);
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
@@ -8844,9 +8836,7 @@ fn publish_monolithic_checkpoint(
     drop(writer);
 
     // Sync temp file to storage
-    let temp_file = File::open(&temp_path)?;
-    temp_file.sync_all()?;
-    drop(temp_file);
+    checkpoint_io::sync_written_file(&temp_path)?;
 
     // Calculate hash
     let hash = calculate_file_hash(&temp_path)?;
@@ -8880,9 +8870,7 @@ fn publish_monolithic_checkpoint(
     }
 
     // Sync parent directory to ensure directory entry is persisted
-    let objects_dir_file = File::open(&objects_dir)?;
-    objects_dir_file.sync_all()?;
-    drop(objects_dir_file);
+    checkpoint_io::sync_directory(&objects_dir)?;
 
     // Update nonauthoritative forensic.jsonl view via atomic rename
     let view_path = checkpoint_dir.join("forensic.jsonl");
@@ -8896,12 +8884,7 @@ fn publish_monolithic_checkpoint(
     std::io::copy(&mut source, &mut view_file)?;
     view_file.sync_all()?;
     drop(view_file);
-    std::fs::rename(&view_temp, &view_path)?;
-
-    // Sync checkpoint directory
-    let checkpoint_dir_file = File::open(checkpoint_dir)?;
-    checkpoint_dir_file.sync_all()?;
-    drop(checkpoint_dir_file);
+    checkpoint_io::replace_durable_file(&view_temp, &view_path)?;
 
     changed_paths.push(format!("objects/{}.jsonl", hash));
     changed_paths.push("forensic.jsonl".to_string());
@@ -9050,9 +9033,7 @@ fn pack_sealed_groups(line_lens: &[usize], max_records: u64, max_bytes: u64) -> 
 /// Sync a directory entry so renames and creations beneath it persist
 /// (plan 6.2 step 5)
 fn sync_dir(dir: &Path) -> Result<()> {
-    let dir_file = File::open(dir)?;
-    dir_file.sync_all()?;
-    drop(dir_file);
+    checkpoint_io::sync_directory(dir)?;
     Ok(())
 }
 
@@ -9796,14 +9777,7 @@ fn write_current_pointer(
     drop(temp_file);
 
     // Atomic rename
-    std::fs::rename(&temp_path, pointer_path)?;
-
-    // Sync parent directory
-    if let Some(parent) = pointer_path.parent() {
-        let parent_dir = File::open(parent)?;
-        parent_dir.sync_all()?;
-        drop(parent_dir);
-    }
+    checkpoint_io::replace_durable_file(&temp_path, pointer_path)?;
 
     Ok(())
 }
@@ -10010,9 +9984,7 @@ fn apply_checkpoint_tombstones(checkpoint_dir: &Path, deleted_paths: &[String]) 
 
     // Persist directory entries so deleted objects cannot reappear
     for dir in &touched_dirs {
-        let dir_file = File::open(dir)?;
-        dir_file.sync_all()?;
-        drop(dir_file);
+        checkpoint_io::sync_directory(dir)?;
     }
 
     Ok(removed)
