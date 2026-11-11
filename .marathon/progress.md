@@ -2029,3 +2029,27 @@ snapshot re-verification corrected the record and repaired what it caught:
   exposure outside its framed adapter. The narrowly scoped safety fix records
   only an unsafe-path flag and keeps qualification/spans unchanged; complete
   dependency verification and independent re-review precede installation.
+
+## 2026-11-11 editing and Windows tray work
+
+Development is running in cloud linked Git worktrees created through Riftri.
+The PC source and native checkpoints remain preserved. If the session stops,
+inspect these directories and branches before resuming or removing anything:
+
+- `/workspace/scratch/51bd923093d4/worktrees/bead-editing`: `feat/bead-editing-20261111`
+- `/workspace/scratch/51bd923093d4/worktrees/bead-pinning`: `feat/bead-pinning-20261111`
+- `/workspace/scratch/51bd923093d4/worktrees/scotty-editing`: `feat/scotty-editing-20261111`
+- `/workspace/scratch/51bd923093d4/worktrees/scotty-tray`: `feat/scotty-tray-20261111`
+
+Check Git status and remote commits before cleanup. Preserve any uncommitted or
+unpublished changes. From the appropriate repository, use
+`/workspace/scratch/51bd923093d4/tools/node_modules/.bin/riftri exec -- git worktree remove PATH`
+with the exact listed directory, without force. The cloud filesystem does not
+permit copy-on-write mounts; Riftri forwards these commands to ordinary linked
+Git worktrees. The final update will record removal.
+
+Backend source starts at `afac9fa0ce9533a707d745018d16a25e4ccff492` from
+`YossiMH/bead-rs`. Scotty's existing local source was preserved at
+`55f17568be93442abc6e4725d3e159448e0c9ab5` before new code. Only the backend's
+verified native checkpoint is being restored into the isolated cloud checkout
+for task coordination. Scotty's machine-local task data stays on the PC.
