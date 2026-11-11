@@ -708,7 +708,20 @@ fn state_change_result(
     let after = issue_snapshot(tx, id)?
         .ok_or_else(|| Error::integrity(format!("issue {id} vanished inside the transaction")))?;
 
-    let changes = before.map(|before| diff_snapshots(before, &after));
+    let mut changes = before.map(|before| diff_snapshots(before, &after));
+    if let Some(changes) = changes.as_mut() {
+        let policy = secret_boundary::policy(tx)?;
+        let selector = secret_boundary::selector("issue", id);
+        for field in ["title", "description", "issue_type"] {
+            if let Some(change) = changes.get_mut(field) {
+                for side in ["before", "after"] {
+                    if let Some(Value::String(text)) = change.get_mut(side) {
+                        secret_boundary::redact_output_text(&policy, &selector, field, text);
+                    }
+                }
+            }
+        }
+    }
     let semantic_change = before
         .map(|before| before.revision != after.revision)
         .unwrap_or(true);

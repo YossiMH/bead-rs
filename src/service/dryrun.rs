@@ -35,7 +35,7 @@ pub struct DryRunResult {
 pub struct IssueDryRunState {
     pub id: String,
     pub title: String,
-    /// Exact text projected by the same operation used for commit.
+    /// Projected text; fields containing scan findings use REDACTION_MARKER.
     pub description: Option<String>,
     pub notes: Option<String>,
     pub issue_type: Option<String>,
@@ -47,9 +47,10 @@ pub struct IssueDryRunState {
     pub updated_at: String,
 }
 
-/// Convert Issue to dry-run state format
-fn issue_to_dryrun_state(issue: &Issue) -> IssueDryRunState {
-    IssueDryRunState {
+/// Project issue fields without exposing matched text in either preview state.
+/// Redaction affects only the output copy and respects the workspace scan mode.
+fn issue_to_dryrun_state(conn: &Connection, issue: &Issue) -> Result<IssueDryRunState> {
+    let mut state = IssueDryRunState {
         id: issue.id.clone(),
         title: issue.title.clone(),
         description: issue.description.clone(),
@@ -61,7 +62,21 @@ fn issue_to_dryrun_state(issue: &Issue) -> IssueDryRunState {
         manual_blocked: issue.manual_blocked,
         closed_at: issue.closed_at.clone(),
         updated_at: issue.updated_at.clone(),
+    };
+    let policy = super::secret_boundary::policy(conn)?;
+    let selector = super::secret_boundary::selector("issue", &issue.id);
+    for (path, text) in [
+        ("title", Some(&mut state.title)),
+        ("description", state.description.as_mut()),
+        ("notes", state.notes.as_mut()),
+        ("issue_type", state.issue_type.as_mut()),
+        ("assignee", state.assignee.as_mut()),
+    ] {
+        if let Some(text) = text {
+            super::secret_boundary::redact_output_text(&policy, &selector, path, text);
+        }
     }
+    Ok(state)
 }
 
 /// Get current workspace event sequence
@@ -127,6 +142,8 @@ pub fn edit_issue_dryrun(
     let after_issue = crate::service::issues::get_issue_by_id(&tx, id)?
         .ok_or_else(|| Error::integrity("edited issue vanished inside its transaction"))?;
     let semantic_change = after_issue.revision != issue.revision;
+    let before = issue_to_dryrun_state(&tx, &issue)?;
+    let after = issue_to_dryrun_state(&tx, &after_issue)?;
     let mut changes = Vec::new();
     if after_issue.base_status != issue.base_status {
         changes.push(format!(
@@ -140,8 +157,8 @@ pub fn edit_issue_dryrun(
     if after_issue.assignee != issue.assignee {
         changes.push(format!(
             "assignee: {} -> {}",
-            issue.assignee.as_deref().unwrap_or("none"),
-            after_issue.assignee.as_deref().unwrap_or("none")
+            before.assignee.as_deref().unwrap_or("none"),
+            after.assignee.as_deref().unwrap_or("none")
         ));
     }
     for (field, changed) in [
@@ -159,8 +176,8 @@ pub fn edit_issue_dryrun(
         id: id.to_owned(),
         current_revision,
         workspace_sequence,
-        before: issue_to_dryrun_state(&issue),
-        after: issue_to_dryrun_state(&after_issue),
+        before,
+        after,
         semantic_change,
         message: if semantic_change {
             format!("Would update: {}", changes.join(", "))
@@ -183,7 +200,7 @@ pub fn close_issue_dryrun(conn: &Connection, id: &str, reason: &str) -> Result<D
     let issue =
         crate::service::issues::get_issue_by_id(conn, id)?.ok_or_else(|| Error::not_found(id))?;
 
-    let before = issue_to_dryrun_state(&issue);
+    let before = issue_to_dryrun_state(conn, &issue)?;
     let current_revision = issue.revision.unwrap_or(1);
     let workspace_sequence = get_workspace_sequence(conn)?;
 
@@ -210,7 +227,7 @@ pub fn close_issue_dryrun(conn: &Connection, id: &str, reason: &str) -> Result<D
             }
         };
 
-    let after = issue_to_dryrun_state(&after_issue);
+    let after = issue_to_dryrun_state(conn, &after_issue)?;
     let message = if semantic_change {
         format!("Would close issue with reason: '{}'", reason.trim())
     } else {
@@ -234,7 +251,7 @@ pub fn reopen_issue_dryrun(conn: &Connection, id: &str) -> Result<DryRunResult> 
     let issue =
         crate::service::issues::get_issue_by_id(conn, id)?.ok_or_else(|| Error::not_found(id))?;
 
-    let before = issue_to_dryrun_state(&issue);
+    let before = issue_to_dryrun_state(conn, &issue)?;
     let current_revision = issue.revision.unwrap_or(1);
     let workspace_sequence = get_workspace_sequence(conn)?;
 
@@ -243,6 +260,7 @@ pub fn reopen_issue_dryrun(conn: &Connection, id: &str) -> Result<DryRunResult> 
 
     let semantic_change = if issue.base_status == BaseStatus::Closed {
         after_issue.base_status = BaseStatus::Open;
+        after_issue.assignee = None;
         after_issue.closed_at = None;
         after_issue.close_reason = None;
         after_issue.manual_blocked = Some(false);
@@ -257,7 +275,7 @@ pub fn reopen_issue_dryrun(conn: &Connection, id: &str) -> Result<DryRunResult> 
         )));
     };
 
-    let after = issue_to_dryrun_state(&after_issue);
+    let after = issue_to_dryrun_state(conn, &after_issue)?;
     let message = if semantic_change {
         "Would reopen issue to open status".to_string()
     } else {
@@ -281,7 +299,7 @@ pub fn release_issue_dryrun(conn: &Connection, id: &str) -> Result<DryRunResult>
     let issue =
         crate::service::issues::get_issue_by_id(conn, id)?.ok_or_else(|| Error::not_found(id))?;
 
-    let before = issue_to_dryrun_state(&issue);
+    let before = issue_to_dryrun_state(conn, &issue)?;
     let current_revision = issue.revision.unwrap_or(1);
     let workspace_sequence = get_workspace_sequence(conn)?;
 
@@ -307,7 +325,7 @@ pub fn release_issue_dryrun(conn: &Connection, id: &str) -> Result<DryRunResult>
         )));
     };
 
-    let after = issue_to_dryrun_state(&after_issue);
+    let after = issue_to_dryrun_state(conn, &after_issue)?;
     let message = if semantic_change {
         format!(
             "Would release issue from {} to open/unassigned",

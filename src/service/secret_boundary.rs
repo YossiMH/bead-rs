@@ -45,6 +45,20 @@ pub fn policy(conn: &Connection) -> Result<ScanConfig> {
     Ok(ScanConfig::enforce())
 }
 
+/// Mask a projected text field under the workspace's existing scanner policy.
+/// Callers pass output copies after comparing raw values; stored text is retained.
+pub(crate) fn redact_output_text(
+    policy: &ScanConfig,
+    selector: &str,
+    path: &str,
+    text: &mut String,
+) {
+    let report = scan::scan(policy, selector, &[Field::new(path, text)]);
+    if !report.findings.is_empty() {
+        *text = crate::model::redaction::REDACTION_MARKER.to_owned();
+    }
+}
+
 pub(crate) fn selector(kind: &str, id: &str) -> String {
     let valid = !id.is_empty()
         && id.len() <= 255
