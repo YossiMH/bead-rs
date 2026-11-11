@@ -220,6 +220,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
         temp.sync_all()?;
     }
     fs::rename(&temp_path, path).with_context(|| format!("cannot replace {}", path.display()))?;
-    File::open(dir)?.sync_all()?;
+    super::checkpoint_io::sync_directory(dir)
+        .with_context(|| format!("cannot sync configuration directory {}", dir.display()))?;
     Ok(())
 }
