@@ -72,6 +72,25 @@ which extracts the commit read-only and builds in a scratch directory:
 scripts/build-from-archive.sh <commit-sha> --features attempt-resolution
 ```
 
+The script defaults to the compiler's host target. To build a Windows pin on
+Linux, install the Rust target and a matching cross compiler, configure Cargo's
+linker, then select the target explicitly:
+
+```bash
+scripts/build-from-archive.sh <commit-sha> --target x86_64-pc-windows-gnu
+```
+
+Windows pins receive an `.exe` suffix. The receipt records `build_target`,
+`build_host_target`, the source commit and the binary hash. A foreign target
+has `execution_verification: "pending"` and a null `embedded_version_string`;
+run its version and behavior checks on Windows before selecting that pin.
+Host builds execute `--version` and record `execution_verification: "executed"`.
+
+Set `BEAD_BUILD_SCRATCH_ROOT` to choose a different extraction directory when
+the default `~/scratch` volume lacks space. The same 5 GiB free-space check
+applies to either location. Successful builds remove their extraction directory;
+failed builds leave it for inspection.
+
 See [BUILD_PROCEDURE.md](BUILD_PROCEDURE.md) ("Build Rule") and
 [docs/build-attempt-resolution-binary.md](docs/build-attempt-resolution-binary.md).
 

@@ -15,14 +15,16 @@
 #
 # Usage:
 #   scripts/build-from-archive.sh <sha> [--features <feat,...>]
-#                                 [--name <pin-name>] [--out <dir>]
+#                                 [--target <triple>] [--name <pin-name>] [--out <dir>]
 #
 #   <sha>            commit to build (full or short); archived as committed,
 #                    so uncommitted changes in the shared checkout are ignored
 #   --features       comma-separated cargo features to build with
+#   --target         Rust target triple; default rustc host target
 #   --name           pin name; default `bead-<short-sha>` (pins are usually
 #                     named `<role>-<shaslice>`, so pass a role when pinning)
 #   --out            destination directory; default pinned-binaries/
+#   BEAD_BUILD_SCRATCH_ROOT overrides the default ~/scratch extraction directory.
 #
 # Exit codes: 0 success; nonzero usage/validation/extraction/build failure.
 
@@ -56,6 +58,7 @@ REPO=$(git rev-parse --show-toplevel 2>/dev/null) ||
 REQ_SHA=$1
 FULL_SHA=$REQ_SHA
 FEATURES=""
+BUILD_TARGET=""
 NAME=""
 OUT_DIR="$REPO/pinned-binaries"
 shift
@@ -70,6 +73,12 @@ while [[ $# -gt 0 ]]; do
 	--name)
 		[[ $# -ge 2 ]] || die "--name requires a value"
 		NAME=$2
+		shift 2
+		;;
+	--target)
+		[[ $# -ge 2 ]] || die "--target requires a value"
+		BUILD_TARGET=$2
+		[[ -n "$BUILD_TARGET" ]] || die "--target cannot be empty"
 		shift 2
 		;;
 	--out)
@@ -90,6 +99,12 @@ trap 'echo "$progname: FAILED — scratch dir left in place for diagnosis: ${SCR
 
 command -v cargo >/dev/null || die "cargo not found on PATH"
 command -v python3 >/dev/null || die "python3 not found on PATH"
+command -v rustc >/dev/null || die "rustc not found on PATH"
+BUILD_HOST_TARGET=$(rustc -vV | sed -n 's/^host: //p')
+[[ -n "$BUILD_HOST_TARGET" ]] || die "cannot determine rustc host target"
+[[ -n "$BUILD_TARGET" ]] || BUILD_TARGET="$BUILD_HOST_TARGET"
+rustc --print target-list | grep -Fx -- "$BUILD_TARGET" >/dev/null ||
+	die "unknown Rust target: $BUILD_TARGET"
 
 # Resolve and validate the requested commit. Read-only against the shared
 # checkout, like every git call in this script.
@@ -99,6 +114,11 @@ SHORT_SHA=${FULL_SHA:0:7}
 COMMIT_SUBJECT=$(git -C "$REPO" show -s --format=%s "$FULL_SHA")
 COMMIT_DATE=$(git -C "$REPO" show -s --format=%cI "$FULL_SHA")
 [[ -n "$NAME" ]] || NAME="bead-$SHORT_SHA"
+EXE_SUFFIX=""
+if [[ "$BUILD_TARGET" == *-windows-* ]]; then
+	EXE_SUFFIX=".exe"
+	[[ "$NAME" == *.exe ]] || NAME+="$EXE_SUFFIX"
+fi
 
 mkdir -p "$OUT_DIR"
 DEST="$OUT_DIR/$NAME"
@@ -107,10 +127,10 @@ if [[ -e "$DEST" || -e "$META" ]]; then
 	die "refusing to overwrite an existing pin: $DEST"
 fi
 
-# Scratch extraction lives under ~/scratch per the disposable-checkout rule.
+# Scratch extraction defaults to ~/scratch per the disposable-checkout rule.
 # A cold release build needs a couple of GB; refuse early rather than filling
 # the disk for every agent and worker on the box (2026-08-21 ENOSPC incident).
-SCRATCH_BASE="$HOME/scratch"
+SCRATCH_BASE="${BEAD_BUILD_SCRATCH_ROOT:-$HOME/scratch}"
 mkdir -p "$SCRATCH_BASE"
 AVAIL_KB=$(df -k "$SCRATCH_BASE" | awk 'NR==2 {print $4}')
 if (( AVAIL_KB < 5 * 1024 * 1024 )); then
@@ -124,7 +144,7 @@ if ! git -C "$REPO" archive "$FULL_SHA" | tar -x -C "$SCRATCH"; then
 fi
 [[ -f "$SCRATCH/Cargo.toml" ]] || die "no Cargo.toml in the archive of $SHORT_SHA"
 
-BUILD_CMD=(cargo build --release --locked)
+BUILD_CMD=(cargo build --release --locked --target "$BUILD_TARGET")
 if [[ -n "$FEATURES" ]]; then
 	BUILD_CMD+=(--features "$FEATURES")
 fi
@@ -147,15 +167,21 @@ TARGET_DIR=$(cd "$SCRATCH" && CARGO_TARGET_DIR="$SCRATCH/target" \
 	cargo metadata --format-version 1 --no-deps --offline 2>/dev/null |
 	sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
 [[ -n "$TARGET_DIR" ]] || TARGET_DIR="$SCRATCH/target"
-BIN="$TARGET_DIR/release/bead"
+BIN="$TARGET_DIR/$BUILD_TARGET/release/bead$EXE_SUFFIX"
 [[ -x "$BIN" ]] || die "build reported success but $BIN is missing"
 
-# Run the binary once from inside the scratch dir to prove it executes; its
-# embedded commit is "unknown" by design — an archive carries no .git, and
-# build.rs documents that as the honest value for exported trees.
-VERSION_STRING=$(cd "$SCRATCH" && "$BIN" --version) ||
-	die "built binary does not run: $VERSION_STRING"
-echo "$progname: built: $VERSION_STRING"
+# Only the compiler's host target can be verified here. A foreign executable
+# must be checked on its target OS before selecting the pin for use.
+VERSION_STRING=""
+EXECUTION_VERIFICATION="pending"
+if [[ "$BUILD_TARGET" == "$BUILD_HOST_TARGET" ]]; then
+	VERSION_STRING=$(cd "$SCRATCH" && "$BIN" --version) ||
+		die "built binary does not run: $VERSION_STRING"
+	EXECUTION_VERIFICATION="executed"
+	echo "$progname: built: $VERSION_STRING"
+else
+	echo "$progname: built for $BUILD_TARGET; execution verification pending"
+fi
 
 install -m 755 "$BIN" "$DEST"
 BIN_SHA256=$(sha256sum "$DEST" | awk '{print $1}')
@@ -177,6 +203,9 @@ BIN_NAME="$NAME" \
 	COMMIT_SUBJECT="$COMMIT_SUBJECT" \
 	COMMIT_DATE="$COMMIT_DATE" \
 	VERSION_STRING="$VERSION_STRING" \
+	BUILD_TARGET="$BUILD_TARGET" \
+	BUILD_HOST_TARGET="$BUILD_HOST_TARGET" \
+	EXECUTION_VERIFICATION="$EXECUTION_VERIFICATION" \
 	BUILD_TIMESTAMP="$BUILD_TIMESTAMP" \
 	BIN_SHA256="$BIN_SHA256" \
 	BIN_SIZE="$BIN_SIZE" \
@@ -198,9 +227,12 @@ data = {
     "git_commit_short": os.environ["SHORT_SHA"],
     "git_commit_message": os.environ["COMMIT_SUBJECT"],
     "git_commit_date": os.environ["COMMIT_DATE"],
-    "embedded_version_string": os.environ["VERSION_STRING"],
+    "embedded_version_string": os.environ["VERSION_STRING"] or None,
     "build_timestamp": os.environ["BUILD_TIMESTAMP"],
     "build_host": os.environ["BUILD_HOST"],
+    "build_host_target": os.environ["BUILD_HOST_TARGET"],
+    "build_target": os.environ["BUILD_TARGET"],
+    "execution_verification": os.environ["EXECUTION_VERIFICATION"],
     "build_scratch_path": os.environ["SCRATCH_PATH"],
     "binary_sha256": os.environ["BIN_SHA256"],
     "binary_size_bytes": int(os.environ["BIN_SIZE"]),
@@ -212,13 +244,13 @@ data = {
     "build_command": os.environ["BUILD_COMMAND_LINE"],
     "pinned_binary_path": os.environ["PIN_PATH"],
     "source": os.environ["SOURCE"],
-    "source_extraction": "git archive from %s into a scratch dir under ~/scratch; "
+    "source_extraction": "git archive from %s into build_scratch_path; "
     "the shared checkout's index, HEAD, reflog and stashes were not touched "
     "(scripts/build-from-archive.sh)" % os.environ["SOURCE_REPO"],
     "notes": [
-        "The embedded version string reports commit 'unknown' because a git-archive "
-        "extraction carries no .git; build.rs documents that as the honest value for "
-        "exported trees. The authoritative source commit is git_commit_sha above.",
+        "An archive carries no .git, so bead-rs build.rs uses commit 'unknown'. "
+        "The authoritative source commit is git_commit_sha above. A null "
+        "embedded_version_string means execution has not been verified on the target.",
         "sha256 is NOT reproducible across rebuilds: build.rs re-embeds "
         "BEAD_BUILD_TIMESTAMP on every build. Verify by hash comparison against these "
         "pinned bytes; do not rebuild and expect this hash.",
