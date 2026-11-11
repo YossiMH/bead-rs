@@ -137,12 +137,24 @@ if (( AVAIL_KB < 5 * 1024 * 1024 )); then
 	die "only ${AVAIL_KB}KiB free under $SCRATCH_BASE; a cold build needs several GB"
 fi
 SCRATCH=$(mktemp -d -p "$SCRATCH_BASE" "bead-archive-$SHORT_SHA-XXXXXX")
+SCRATCH=$(cd "$SCRATCH" && pwd -P)
 
 echo "$progname: extracting $SHORT_SHA into $SCRATCH"
 if ! git -C "$REPO" archive "$FULL_SHA" | tar -x -C "$SCRATCH"; then
 	die "archive extraction of $SHORT_SHA failed"
 fi
 [[ -f "$SCRATCH/Cargo.toml" ]] || die "no Cargo.toml in the archive of $SHORT_SHA"
+
+# Build scripts must not discover a checkout enclosing the extraction directory
+# or inherit an explicit Git repository from the caller.
+in_archive() (
+	cd "$SCRATCH"
+	unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+	unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+	export GIT_CEILING_DIRECTORIES="${SCRATCH%/*}"
+	export CARGO_TARGET_DIR="$SCRATCH/target"
+	"$@"
+)
 
 BUILD_CMD=(cargo build --release --locked --target "$BUILD_TARGET")
 if [[ -n "$FEATURES" ]]; then
@@ -152,7 +164,7 @@ BUILD_COMMAND_LINE="${BUILD_CMD[*]}"
 
 echo "$progname: building: $BUILD_COMMAND_LINE (CARGO_TARGET_DIR=$SCRATCH/target)"
 BUILD_LOG="$SCRATCH/build.log"
-if ! (cd "$SCRATCH" && CARGO_TARGET_DIR="$SCRATCH/target" "${BUILD_CMD[@]}" 2>&1 | tee "$BUILD_LOG"); then
+if ! in_archive "${BUILD_CMD[@]}" 2>&1 | tee "$BUILD_LOG"; then
 	tail -n 40 "$BUILD_LOG" >&2 || true
 	die "build of $SHORT_SHA failed (full log: $BUILD_LOG)"
 fi
@@ -163,8 +175,7 @@ fi
 # effective directory through the same wrapper (beadrs-049cfb7b). That
 # directory can be shared with other builds, so the binary is copied out
 # immediately below.
-TARGET_DIR=$(cd "$SCRATCH" && CARGO_TARGET_DIR="$SCRATCH/target" \
-	cargo metadata --format-version 1 --no-deps --offline 2>/dev/null |
+TARGET_DIR=$(in_archive cargo metadata --format-version 1 --no-deps --offline 2>/dev/null |
 	sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
 [[ -n "$TARGET_DIR" ]] || TARGET_DIR="$SCRATCH/target"
 BIN="$TARGET_DIR/$BUILD_TARGET/release/bead$EXE_SUFFIX"
@@ -175,7 +186,7 @@ BIN="$TARGET_DIR/$BUILD_TARGET/release/bead$EXE_SUFFIX"
 VERSION_STRING=""
 EXECUTION_VERIFICATION="pending"
 if [[ "$BUILD_TARGET" == "$BUILD_HOST_TARGET" ]]; then
-	VERSION_STRING=$(cd "$SCRATCH" && "$BIN" --version) ||
+	VERSION_STRING=$(in_archive "$BIN" --version) ||
 		die "built binary does not run: $VERSION_STRING"
 	EXECUTION_VERIFICATION="executed"
 	echo "$progname: built: $VERSION_STRING"

@@ -33,11 +33,18 @@ class ArchiveTargets(unittest.TestCase):
         (self.repository / 'src/main.rs').write_text(
             'fn main() { println!("bead archive fixture 0.0.1"); }\n',
             encoding='utf-8')
+        (self.repository / 'build.rs').write_text(
+            'fn main() {\n'
+            '  let output = std::process::Command::new("git")\n'
+            '    .args(["rev-parse", "--show-toplevel"]).output().expect("run git");\n'
+            '  assert!(!output.status.success(), "archive discovered a Git checkout: {}",\n'
+            '    String::from_utf8_lossy(&output.stdout));\n'
+            '}\n', encoding='utf-8')
         self.run_command('git', 'init', '--quiet')
         self.run_command('git', 'config', 'user.name', 'Archive test')
         self.run_command('git', 'config', 'user.email', 'archive@example.invalid')
         self.run_command('cargo', 'generate-lockfile', '--offline')
-        self.run_command('git', 'add', '--', 'Cargo.toml', 'Cargo.lock', 'src/main.rs')
+        self.run_command('git', 'add', '--', 'Cargo.toml', 'Cargo.lock', 'src/main.rs', 'build.rs')
         self.run_command('git', 'commit', '--quiet', '-m', 'Create fixture')
         self.commit = self.run_command('git', 'rev-parse', 'HEAD').stdout.strip()
         rust_version = self.run_command('rustc', '-vV').stdout
@@ -84,6 +91,8 @@ class ArchiveTargets(unittest.TestCase):
         return binary, receipt
 
     def test_native_build_preserves_source_and_runs_the_binary(self):
+        self.environment['GIT_DIR'] = str(self.repository / '.git')
+        self.environment['GIT_WORK_TREE'] = str(self.repository)
         self.build('native')
         binary, receipt = self.assert_receipt('native', self.host, 'executed')
         self.assertEqual(self.run_command(str(binary), '--version').stdout.strip(),

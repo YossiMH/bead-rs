@@ -90,6 +90,9 @@ Set `BEAD_BUILD_SCRATCH_ROOT` to choose a different extraction directory when
 the default `~/scratch` volume lacks space. The same 5 GiB free-space check
 applies to either location. Successful builds remove their extraction directory;
 failed builds leave it for inspection.
+Archive commands clear inherited Git repository selectors and stop Git discovery
+at the extraction directory, so a surrounding checkout cannot supply its commit
+or dirty state to the build.
 
 See [BUILD_PROCEDURE.md](BUILD_PROCEDURE.md) ("Build Rule") and
 [docs/build-attempt-resolution-binary.md](docs/build-attempt-resolution-binary.md).
