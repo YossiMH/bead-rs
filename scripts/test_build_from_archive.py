@@ -112,6 +112,10 @@ class ArchiveTargets(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('unknown argument', result.stderr)
         self.assertFalse((pins / 'invalid').exists())
+        result = self.build('invalid-target', '--target', 'not-a-rust-target', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((pins / 'invalid-target').exists())
+        self.assertFalse((pins / 'invalid-target.metadata.json').exists())
         self.assert_source_unchanged()
 
 
