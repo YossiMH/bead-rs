@@ -169,6 +169,7 @@ fn import_extended_issue(workspace: &Path) -> String {
         "notes": "Original notes",
         "priority": 2,
         "base_status": "open",
+        "manual_blocked": false,
         "issue_type": "task",
         "created_at": "2026-11-01T09:00:00Z",
         "updated_at": "2026-11-01T09:00:00Z",
