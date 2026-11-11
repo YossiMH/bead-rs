@@ -89,9 +89,9 @@ claim ownership therefore cannot be bypassed by composing an edit in a manifest.
 All manifest operations, including scalar edits and dependency changes, either
 commit together or roll back together. Dry-run uses that same transaction and
 rolls it back.
-Scalar delta values use the same output masking after comparison of raw values,
-so distinct detected texts still report a change even when their displayed
-markers are equal. Notes retain the boolean `notes_changed` delta.
+Title, description and issue-type delta values use the same output masking
+after comparison of raw values, so distinct detected texts still report a
+change even when their displayed markers are equal. Notes retain the boolean `notes_changed` delta.
 
 ## Capability negotiation
 
