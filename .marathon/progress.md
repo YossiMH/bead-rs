@@ -2053,3 +2053,50 @@ Backend source starts at `afac9fa0ce9533a707d745018d16a25e4ccff492` from
 `55f17568be93442abc6e4725d3e159448e0c9ab5` before new code. Only the backend's
 verified native checkpoint is being restored into the isolated cloud checkout
 for task coordination. Scotty's machine-local task data stays on the PC.
+
+### Cloud implementation and verification — delivery pending
+
+- Runtime candidate `0eaace27104a2318722e37a96b3e9e1840a68a4c` adds guarded,
+  atomic edits for title, description, priority and issue type alongside the
+  existing status, assignment and notes fields. Priority changes retain an
+  attributed reason and audit event; unchanged edits remain no-ops after
+  guard checks. Description and notes accept file input. Existing dependency
+  add/remove operations retain their direction and all three native kinds.
+  Scotty's integrated changes negotiate these editing capabilities.
+- The complete run at `a168e27` finished 144 targets: 1,878 passed, 12 failed
+  and eight existing tests ignored. All four failed targets subsequently
+  passed: capability matrix 11/11 and initialization 22/22 at `81effa87`,
+  secret rejection 10/10 and archive isolation 3/3 at `0eaace27`. Final
+  affected suites passed 62 tests, including three new regression tests;
+  formatting, all-targets Clippy with warnings denied, and
+  `cargo test --locked --no-run` also passed. These are the preserved full
+  run plus targeted reruns, not a second complete suite at the final tip.
+  The eight pre-existing ignored tests remain ignored.
+- The full run exposed text in dry-run output that required the existing
+  redaction policy. The correction masks copied before/after fields and
+  assignment summaries, and copied manifest scalar deltas, using the
+  existing marker. Raw values still determine whether an edit changed;
+  persisted text remains exact. Regression tests cover both output paths,
+  clean text, unchanged dry-run state and stored values.
+- The cloud Windows x64 build from `0eaace27` passed. Its executable SHA-256
+  is `7f2bd17f0ad70f90c93a0daa5f2b8fc4017be50e5ae0d0f4b2bfa02dc01cfa79`;
+  inspected PE imports are Windows system DLLs. Actual Windows editing and
+  tray qualification, publication to the intended main branches, local
+  installation and cleanup remain pending in this entry.
+- Native coordination reuses the same history in
+  `/workspace/scratch/51bd923093d4/coordination/bead-rs`. The documented
+  verified restore used source generation
+  `gen-a569f746bbb268015d996c8ed4c76f57`, root SHA-256
+  `4f5571a1823810366d4a3274c9231604913905c6334c380bf116b110ae5d486d`,
+  and unchanged store UUID `1c4f5d56-dcff-cbc5-ddf9-c536653c45f4`.
+  Receipt `restore-18e7125bd1b5584c` records 954 restored issues, 11,264
+  events and five provenance receipts, with no displaced records. The
+  source-checkout copy that refused writes for an unresolved tombstone was
+  preserved. The reviewed plan adds 37 tasks and 62 blocking edges to this
+  restored history. Root still must flush and persist the final checkpoint
+  and provenance; Scotty's machine-local task store remains on the PC.
+- If this session stops, preserve the worktree recovery list above and
+  reconcile all unpublished work before cleanup. Also remove temporary
+  branch `task/build-transfer-20261111` from `YossiMH/bead-me-up-scotty`
+  after delivery; it holds executable chunks and source bundles. No
+  worktree removal or temporary-branch deletion is credited here.
