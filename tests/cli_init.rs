@@ -547,6 +547,8 @@ fn force_monolithic_mode(workspace: &std::path::Path) {
 /// refusal naming a workspace the test never created. `/var/tmp` stays the
 /// first choice (the historical base, chosen to dodge a stray `/tmp/.beads`),
 /// falling back to TMPDIR and then /dev/shm when an earlier base is occupied.
+/// Canonical paths keep expected roots consistent with child-process working
+/// directories when a temp base is a symlink.
 fn temp_workspace_dir() -> tempfile::TempDir {
     let mut bases = vec![
         std::path::PathBuf::from("/var/tmp"),
@@ -554,12 +556,17 @@ fn temp_workspace_dir() -> tempfile::TempDir {
         std::path::PathBuf::from("/dev/shm"),
     ];
     bases.retain(|base| base.exists() && !has_beads_ancestor(base));
-    tempfile::Builder::new()
-        .prefix("bead-test-")
-        .tempdir_in(bases.first().expect(
+    let base = bases
+        .first()
+        .expect(
             "no tempdir base with a .beads-free ancestor chain: clean up the stray .beads \
              above /var/tmp, TMPDIR, or /dev/shm",
-        ))
+        )
+        .canonicalize()
+        .expect("canonicalize workspace tempdir base");
+    tempfile::Builder::new()
+        .prefix("bead-test-")
+        .tempdir_in(base)
         .unwrap()
 }
 
