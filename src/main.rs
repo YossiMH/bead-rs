@@ -647,13 +647,31 @@ fn resolve_text_inputs(cli: &mut Cli) -> Result<()> {
             }
         }
         Command::Update(opts) => {
-            let sources = opts.notes.is_some() as u8
+            let description_sources = opts.description.is_some() as u8
+                + opts.description_file.is_some() as u8
+                + opts.clear_description as u8;
+            if description_sources > 1 {
+                return Err(Error::cli_usage(
+                    "--description, --description-file and --clear-description are mutually exclusive",
+                ));
+            }
+            let notes_sources = opts.notes.is_some() as u8
                 + opts.append_notes.is_some() as u8
                 + opts.notes_file.is_some() as u8;
-            if sources > 1 {
+            if notes_sources > 1 {
                 return Err(Error::cli_usage(
                     "exactly one of --notes, --append-notes, or --notes-file may be supplied",
                 ));
+            }
+            if opts.description_file.as_deref() == Some(std::path::Path::new("-"))
+                && opts.notes_file.as_deref() == Some(std::path::Path::new("-"))
+            {
+                return Err(Error::cli_usage("only one text field may read stdin"));
+            }
+            if let Some(path) = opts.description_file.take() {
+                opts.description = Some(read_text_input(&path)?);
+            } else if opts.clear_description {
+                opts.description = Some(String::new());
             }
             if let Some(path) = opts.notes_file.take() {
                 opts.notes = Some(read_text_input(&path)?);
@@ -2085,86 +2103,39 @@ fn render_document_field_text(
 }
 
 fn cmd_update(opts: cli::UpdateOptions) -> Result<()> {
-    // R037: Check for near-miss flags that should show remediation
-    let mut near_miss_errors = Vec::new();
-
-    if opts.title.is_some() {
-        near_miss_errors.push("title is immutable after create");
-    }
-    if opts.description.is_some() {
-        near_miss_errors.push("description is immutable after create");
-    }
-    if opts.priority.is_some() {
-        near_miss_errors.push("priority is immutable after create");
-    }
-    if opts.issue_type_hidden.is_some() {
-        near_miss_errors.push("issue_type is immutable after create");
-    }
     if opts.label.is_some() {
-        near_miss_errors.push("labels are managed via 'bead label add|remove'");
+        return Err(Error::cli_usage(
+            "Domain rule: labels are managed via 'bead label add|remove'.\n\nRemedies:\n  bead label add <ID> --label <LABEL>\n  bead label remove <ID> --label <LABEL>\n\nRun 'bead update --help' for editable fields.",
+        ));
     }
-
-    if !near_miss_errors.is_empty() {
-        eprintln!("bead: update command cannot modify immutable fields:");
-        for err in &near_miss_errors {
-            eprintln!("  - {}", err);
-        }
-        eprintln!();
-        eprintln!("Domain rule: title, description, priority, issue_type, and labels are");
-        eprintln!("set at creation time and cannot be changed via update.");
-        eprintln!();
-        eprintln!("Remedies:");
-        eprintln!("  • Immutable fields: create a new issue with 'bead create'");
-        eprintln!("  • Labels: use 'bead label add <ID> --label <LABEL>'");
-        eprintln!("    or 'bead label remove <ID> --label <LABEL>'");
-        eprintln!();
-        eprintln!("Run 'bead update --help' for the list of mutable fields.");
-        return Err(Error::cli_usage(""));
-    }
-
-    // Discover workspace
     let config = store::WorkspaceConfig::discover()?
         .ok_or_else(|| Error::workspace("No workspace found. Run `bead init` first."))?;
-
-    // Open database connection
-    let db_path = config.database_path();
-    let conn = store::open_configured_connection(&db_path)
+    let conn = store::open_configured_connection(&config.database_path())
         .map_err(|e| Error::Internal(anyhow::anyhow!("Failed to open database: {}", e)))?;
-
-    // Handle dry-run mode
+    let edit = service::IssueEdit {
+        title: opts.title.as_deref(),
+        description: opts.description.as_deref(),
+        priority: opts.priority,
+        reason: opts.reason.as_deref(),
+        issue_type: opts.issue_type.as_deref(),
+        status: opts.status.as_deref(),
+        assignee: opts.assignee.as_deref(),
+        clear_assignee: opts.clear_assignee,
+        notes: opts.notes.as_deref(),
+        append_notes: opts.append_notes.as_deref(),
+        if_revision: opts.if_revision,
+        fencing_token: opts.fencing_token,
+        override_claim: None,
+    };
     if opts.dry_run {
-        let result = service::update_issue_dryrun_with_append(
-            &conn,
-            &opts.id,
-            opts.status.as_deref(),
-            opts.assignee.as_deref(),
-            opts.clear_assignee,
-            opts.notes.as_deref(),
-            opts.append_notes.as_deref(),
-        )?;
-
-        // Output JSON result
-        let json = serde_json::to_string_pretty(&scan::decorate_mutation(&result)?)?;
-        println!("{}", json);
-        return Ok(());
+        let result = service::edit_issue_dryrun(&conn, &opts.id, &edit)?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&scan::decorate_mutation(&result)?)?
+        );
+    } else {
+        println!("{}", service::edit_issue(&conn, &opts.id, &edit)?);
     }
-
-    // Update the issue
-    let id = service::update_issue_with_append(
-        &conn,
-        &opts.id,
-        opts.status.as_deref(),
-        opts.assignee.as_deref(),
-        opts.clear_assignee,
-        opts.notes.as_deref(),
-        opts.append_notes.as_deref(),
-        opts.if_revision,
-        opts.fencing_token,
-    )?;
-
-    // Print only the ID on success
-    println!("{}", id);
-
     Ok(())
 }
 

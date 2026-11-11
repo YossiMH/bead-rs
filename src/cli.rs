@@ -1142,6 +1142,9 @@ EXAMPLES:
   bead update ID --notes \"Investigated root cause\"   # Add investigation notes
   bead update ID --append-notes \"Second investigation pass\"
   bead update ID --notes-file investigation.txt
+  bead update ID --title \"Revised task\" --description-file details.txt
+  bead update ID --priority 1 --reason \"Urgency reviewed\"
+  bead update ID --issue-type investigation --clear-description
   cat investigation.txt | bead update ID --notes-file -
   bead update ID --clear-assignee                    # Clear assignment (open only)
   bead update ID --status in_progress --if-revision 3 # With revision guard
@@ -1153,10 +1156,14 @@ STATUS TRANSITIONS:
   - deferred can transition to: open, closed (via 'close' command)
   - closed can only transition to: open (via 'reopen' command)
 
-FIELDS THIS COMMAND DOES NOT CHANGE:
-  Title, description, priority, issue type, and labels are not editable here.
-  Set them at creation time with 'bead create', and use 'bead label add' or
-  'bead label remove' for labels. Passing --priority or --title is a usage error.
+EDITABLE FIELDS:
+  Title, description, priority, issue type, notes, status and assignment.
+  --description, --description-file and --clear-description are exclusive.
+  Empty description or notes values clear the corresponding text.
+  --priority requires a nonblank --reason and records the actor and old/new
+  priorities. An unchanged priority emits no priority event.
+  Scalar metadata edits on closed issues preserve their close record.
+  Use 'bead label add|remove' and 'bead dep add|remove' for related records.
 
 ASSIGNMENT:
   --assignee and --clear-assignee are mutually exclusive.
@@ -1217,26 +1224,33 @@ pub struct UpdateOptions {
     #[arg(long)]
     pub dry_run: bool,
 
-    // Hidden flags for R037 near-miss detection
-    /// Near-miss trap: title is immutable after create; this update flag
-    /// does not exist. Set the title at creation time.
-    #[arg(long, hide = true)]
+    /// Replace the title (1-4096 UTF-8 bytes)
+    #[arg(long, allow_hyphen_values = true)]
     pub title: Option<String>,
 
-    /// Near-miss trap: description is immutable after create; this update
-    /// flag does not exist. Set the description at creation time.
-    #[arg(long, hide = true)]
+    /// Replace the description; an empty value clears it
+    #[arg(long, allow_hyphen_values = true)]
     pub description: Option<String>,
 
-    /// Near-miss trap: priority is immutable after create; this update
-    /// flag does not exist. Set the priority at creation time.
-    #[arg(long, hide = true)]
+    /// Read the description from a UTF-8 file, or stdin with -
+    #[arg(long = "description-file", value_name = "PATH")]
+    pub description_file: Option<std::path::PathBuf>,
+
+    /// Clear the description to an empty string
+    #[arg(long)]
+    pub clear_description: bool,
+
+    /// Set priority from 0 through 4, with an audit reason
+    #[arg(long, requires = "reason")]
     pub priority: Option<i64>,
 
-    /// Near-miss trap: issue type is immutable after create; this update
-    /// flag does not exist. Set the issue type at creation time.
-    #[arg(long = "issue-type", hide = true)]
-    pub issue_type_hidden: Option<String>,
+    /// Nonblank explanation for the supplied priority
+    #[arg(long, allow_hyphen_values = true, requires = "priority")]
+    pub reason: Option<String>,
+
+    /// Replace the issue type with a nonempty native type name
+    #[arg(long = "issue-type", allow_hyphen_values = true)]
+    pub issue_type: Option<String>,
 
     /// Near-miss trap: labels are managed by 'bead label add|remove', not
     /// by update.

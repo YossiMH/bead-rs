@@ -3624,11 +3624,13 @@ non-importable.
 
 Where a command rejects an argument a competent operator would expect to work,
 state the domain rule and the remedy instead of surfacing a bare parser error.
-Covers at minimum fields immutable after `create` (title, description,
-priority, issue-type) and near-miss flag spellings on lifecycle commands,
-notably `close --body` against `--reason`. No currently-rejected invocation
-becomes accepted and no semantics change; this generalizes the standard
-`release` already sets when it refuses an assigned open issue by naming
+The original scope covered immutable scalar fields and near-miss lifecycle
+flags. Scalar immutability is superseded by the accepted 2026-11-11
+[existing issue editing contract](../../research/specs/issue-editing-v1.md).
+The remedy requirement still covers dedicated label commands and near-miss flags,
+including `close --body` against `--reason`. R037 governs remedy wording; the
+separate editing contract determines which fields are mutable. It generalizes
+the standard `release` sets when it refuses an assigned open issue by naming
 `update --clear-assignee`. Conformance scenarios must assert the remedy text so
 the affordance cannot regress to a parser default. Accepted in ADR-007.
 
@@ -3788,27 +3790,25 @@ regex-based baselines, not release claims.
      observed claim epoch, the failure `beadrs-3be4bf40` exists to prevent.
 
    Both paths move onto that compare-and-reap service, using R034's threshold.
-6. **Audited priority change.** Operator decision, 2026-10-28: priority, and
-   only priority, becomes editable through `update --priority N --reason TEXT`.
+6. **Audited priority change.** Operator decision, 2026-10-28: priority
+   becomes editable through `update --priority N --reason TEXT`. The 2026-11-11
+   editing contract extends the same guarded operation to title, description
+   and issue type while retaining the priority audit requirement.
    - It is a revision-guarded mutation that records the old and new priority,
      the actor and the reason in a distinct event.
    - Changing a claimed issue requires the claim credential.
    - `--priority` without `--reason` still names the remedy.
 
    304 `priority:` labels across 61 workspaces are the workaround the immutable
-   field produced. This supersedes R037 and ADR-007 for priority only; title,
-   description and issue type stay immutable.
+   field produced. Existing issue editing v1 supersedes the scalar immutability
+   rules in R037 and ADR-007.
 
 ### Open questions
 
-R041 does not make title, description, or priority editable. The umbrella
-recorded 44 `update --title|--description|--priority` attempts and one direct
-SQLite title write as evidence of friction, but R037 and
-[ADR-007](../adr/007-cli-errors-name-the-remedy.md) currently define those
-fields as immutable after `create` and require the error to name the remedy.
-On 2026-10-28 the operator decided priority (R042 item 6). Whether to add an
-audited edit operation for title and description remains an open product
-decision; it is not implementation authority for R041.
+The title, description, priority and issue-type editing decision is resolved
+by [existing issue editing v1](../../research/specs/issue-editing-v1.md), accepted
+2026-11-11. It includes atomic compound edits, revision/claim checks, priority
+reason and actor audit, exact text inputs and capability negotiation.
 
 Native parent/child hierarchy now has demonstrated need. A 2026-10-23 sweep of
 the 92 bead-rs workspaces on codinghome found 13,774 of 51,560 beads (27%),

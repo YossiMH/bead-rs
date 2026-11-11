@@ -35,6 +35,10 @@ pub struct DryRunResult {
 pub struct IssueDryRunState {
     pub id: String,
     pub title: String,
+    /// Exact text projected by the same operation used for commit.
+    pub description: Option<String>,
+    pub notes: Option<String>,
+    pub issue_type: Option<String>,
     pub base_status: String,
     pub priority: i64,
     pub assignee: Option<String>,
@@ -48,6 +52,9 @@ fn issue_to_dryrun_state(issue: &Issue) -> IssueDryRunState {
     IssueDryRunState {
         id: issue.id.clone(),
         title: issue.title.clone(),
+        description: issue.description.clone(),
+        notes: issue.notes.clone(),
+        issue_type: issue.issue_type.clone(),
         base_status: issue.base_status.clone().to_string(),
         priority: issue.priority,
         assignee: issue.assignee.clone(),
@@ -89,111 +96,80 @@ pub fn update_issue_dryrun_with_append(
     notes: Option<&str>,
     append_notes: Option<&str>,
 ) -> Result<DryRunResult> {
-    // Get current issue state
+    edit_issue_dryrun(
+        conn,
+        id,
+        &super::lifecycle::IssueEdit {
+            status,
+            assignee,
+            clear_assignee,
+            notes,
+            append_notes,
+            ..super::lifecycle::IssueEdit::default()
+        },
+    )
+}
+
+/// Execute the guarded edit and inspect its result before rolling it back.
+/// No row, event, revision, or checkpoint state escapes the transaction.
+pub fn edit_issue_dryrun(
+    conn: &Connection,
+    id: &str,
+    edit: &super::lifecycle::IssueEdit<'_>,
+) -> Result<DryRunResult> {
+    let mut tx =
+        rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
     let issue =
-        crate::service::issues::get_issue_by_id(conn, id)?.ok_or_else(|| Error::not_found(id))?;
-
-    let before = issue_to_dryrun_state(&issue);
+        crate::service::issues::get_issue_by_id(&tx, id)?.ok_or_else(|| Error::not_found(id))?;
     let current_revision = issue.revision.unwrap_or(1);
-    let workspace_sequence = get_workspace_sequence(conn)?;
-
-    // Create projected after state by cloning current and applying changes
-    let mut after_issue = issue.clone();
+    let workspace_sequence = get_workspace_sequence(&tx)?;
+    super::lifecycle::edit_issue_in_tx(&mut tx, id, edit)?;
+    let after_issue = crate::service::issues::get_issue_by_id(&tx, id)?
+        .ok_or_else(|| Error::integrity("edited issue vanished inside its transaction"))?;
+    let semantic_change = after_issue.revision != issue.revision;
     let mut changes = Vec::new();
-
-    // Apply status change
-    if let Some(new_status) = status {
-        let new_base_status = BaseStatus::parse(new_status)?;
-        if new_base_status != issue.base_status {
-            // Validate transition
-            crate::model::validate_status_transition(issue.base_status, new_base_status)?;
-            after_issue.base_status = new_base_status;
-            changes.push(format!("status: {} -> {}", issue.base_status, new_status));
-        }
-    }
-
-    // Apply assignee changes
-    if assignee.is_some() && clear_assignee {
-        return Err(Error::validation(
-            "Cannot specify both --assignee and --clear-assignee",
-        ));
-    }
-
-    if let Some(new_assignee) = assignee {
-        if new_assignee.is_empty() {
-            return Err(Error::validation("assignee cannot be empty"));
-        }
-        if after_issue.assignee.as_deref() != Some(new_assignee) {
-            after_issue.assignee = Some(new_assignee.to_string());
-            changes.push(format!(
-                "assignee: {} -> {}",
-                issue.assignee.as_deref().unwrap_or("none"),
-                new_assignee
-            ));
-        }
-    }
-
-    if clear_assignee && after_issue.assignee.is_some() {
-        after_issue.assignee = None;
+    if after_issue.base_status != issue.base_status {
         changes.push(format!(
-            "assignee: {} -> none",
-            issue.assignee.as_deref().unwrap_or("none")
+            "status: {} -> {}",
+            issue.base_status, after_issue.base_status
         ));
     }
-
-    if notes.is_some() && append_notes.is_some() {
-        return Err(Error::cli_usage(
-            "exactly one of --notes, --append-notes, or --notes-file may be supplied",
+    if after_issue.manual_blocked != issue.manual_blocked {
+        changes.push("manual blocking updated".to_owned());
+    }
+    if after_issue.assignee != issue.assignee {
+        changes.push(format!(
+            "assignee: {} -> {}",
+            issue.assignee.as_deref().unwrap_or("none"),
+            after_issue.assignee.as_deref().unwrap_or("none")
         ));
     }
-
-    // Apply notes change
-    if let Some(new_notes) = notes {
-        if new_notes.len() > 4 * 1024 * 1024 {
-            return Err(Error::validation("Notes cannot exceed 4 MiB"));
-        }
-        let notes_changed = match (&issue.notes, Some(new_notes)) {
-            (Some(old), Some(new)) => old != new,
-            (None, Some(_)) => true,
-            (Some(_), None) => true,
-            (None, None) => false,
-        };
-        if notes_changed {
-            after_issue.notes = Some(new_notes.to_string());
-            changes.push("notes updated".to_string());
+    for (field, changed) in [
+        ("title", after_issue.title != issue.title),
+        ("description", after_issue.description != issue.description),
+        ("priority", after_issue.priority != issue.priority),
+        ("issue type", after_issue.issue_type != issue.issue_type),
+        ("notes", after_issue.notes != issue.notes),
+    ] {
+        if changed {
+            changes.push(format!("{field} updated"));
         }
     }
-
-    if let Some(append_value) = append_notes {
-        let resulting_notes = match issue.notes.as_deref().filter(|value| !value.is_empty()) {
-            Some(old) => format!("{old}\n\n{append_value}"),
-            None => append_value.to_string(),
-        };
-        if resulting_notes.len() > 4 * 1024 * 1024 {
-            return Err(Error::cli_usage("notes exceed the 4194304-byte limit"));
-        }
-        after_issue.notes = Some(resulting_notes);
-        changes.push("notes appended".to_string());
-    }
-
-    let after = issue_to_dryrun_state(&after_issue);
-    let semantic_change = !changes.is_empty();
-
-    let message = if semantic_change {
-        format!("Would update: {}", changes.join(", "))
-    } else {
-        "No changes would be made (idempotent)".to_string()
-    };
-
-    Ok(DryRunResult {
-        id: id.to_string(),
+    let result = DryRunResult {
+        id: id.to_owned(),
         current_revision,
         workspace_sequence,
-        before,
-        after,
+        before: issue_to_dryrun_state(&issue),
+        after: issue_to_dryrun_state(&after_issue),
         semantic_change,
-        message,
-    })
+        message: if semantic_change {
+            format!("Would update: {}", changes.join(", "))
+        } else {
+            "No changes would be made (idempotent)".to_owned()
+        },
+    };
+    tx.rollback()?;
+    Ok(result)
 }
 
 /// Dry-run for close operation
@@ -546,6 +522,9 @@ mod tests {
             before: IssueDryRunState {
                 id: "test-123".to_string(),
                 title: "Test Issue".to_string(),
+                description: None,
+                notes: None,
+                issue_type: Some("task".to_owned()),
                 base_status: "open".to_string(),
                 priority: 2,
                 assignee: None,
@@ -556,6 +535,9 @@ mod tests {
             after: IssueDryRunState {
                 id: "test-123".to_string(),
                 title: "Test Issue".to_string(),
+                description: None,
+                notes: None,
+                issue_type: Some("task".to_owned()),
                 base_status: "in_progress".to_string(),
                 priority: 2,
                 assignee: Some("alice".to_string()),

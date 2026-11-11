@@ -89,6 +89,13 @@ fn default_priority() -> i64 {
 #[serde(deny_unknown_fields)]
 pub struct UpdateOp {
     pub id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub clear_description: bool,
+    pub priority: Option<i64>,
+    pub reason: Option<String>,
+    pub issue_type: Option<String>,
     pub status: Option<String>,
     pub assignee: Option<String>,
     #[serde(default)]
@@ -262,6 +269,10 @@ fn manifest_fields(operation: &ManifestOp) -> Vec<Field<'_>> {
         }
         ManifestOp::Update(op) => {
             fields.push(Field::new("id", &op.id));
+            push_optional(&mut fields, "title", op.title.as_deref());
+            push_optional(&mut fields, "description", op.description.as_deref());
+            push_optional(&mut fields, "issue_type", op.issue_type.as_deref());
+            push_optional(&mut fields, "reason", op.reason.as_deref());
             push_optional(&mut fields, "status", op.status.as_deref());
             push_optional(&mut fields, "assignee", op.assignee.as_deref());
             push_optional(&mut fields, "notes", op.notes.as_deref());
@@ -421,14 +432,19 @@ fn validate_references(operations: &[ManifestOp]) -> Result<()> {
 fn validate_updates_supply_a_field(operations: &[ManifestOp]) -> Result<()> {
     for (index, op) in operations.iter().enumerate() {
         if let ManifestOp::Update(update) = op {
-            let supplied = update.status.is_some()
+            let supplied = update.title.is_some()
+                || update.description.is_some()
+                || update.clear_description
+                || update.priority.is_some()
+                || update.issue_type.is_some()
+                || update.status.is_some()
                 || update.assignee.is_some()
                 || update.clear_assignee
                 || update.notes.is_some();
             if !supplied {
                 return Err(Error::integrity(format!(
-                    "operation {index}: update supplies none of 'status', 'assignee', \
-                     'clear_assignee', 'notes'"
+                    "operation {index}: update supplies none of 'title', 'description', 'clear_description', \
+                     'priority', 'issue_type', 'status', 'assignee', 'clear_assignee', 'notes'"
                 )));
             }
         }
@@ -511,19 +527,32 @@ fn execute_operation_in_tx(
         ManifestOp::Update(update) => {
             let id = resolve_target(&update.id, locals).map_err(context)?;
             let before = issue_snapshot(tx, &id).map_err(context)?;
-            crate::service::lifecycle::update_issue_in_tx(
+            if update.clear_description && update.description.is_some() {
+                return Err(context(Error::cli_usage(
+                    "description and clear_description are mutually exclusive",
+                )));
+            }
+            crate::service::lifecycle::edit_issue_in_tx(
                 tx,
                 &id,
-                update.status.as_deref(),
-                update.assignee.as_deref(),
-                update.clear_assignee,
-                update.notes.as_deref(),
-                update.if_revision,
-                None,
-                // A manifest op is not claimant recovery: a target held at a
-                // live claim epoch is refused like any other credential-less
-                // mutation rather than silently overridden.
-                None,
+                &super::lifecycle::IssueEdit {
+                    title: update.title.as_deref(),
+                    description: if update.clear_description {
+                        Some("")
+                    } else {
+                        update.description.as_deref()
+                    },
+                    priority: update.priority,
+                    reason: update.reason.as_deref(),
+                    issue_type: update.issue_type.as_deref(),
+                    status: update.status.as_deref(),
+                    assignee: update.assignee.as_deref(),
+                    clear_assignee: update.clear_assignee,
+                    notes: update.notes.as_deref(),
+                    if_revision: update.if_revision,
+                    // Manifest v1 carries no claimant credential or recovery override.
+                    ..super::lifecycle::IssueEdit::default()
+                },
             )
             .map_err(context)?;
             state_change_result(index, "update", &id, before.as_ref(), tx).map_err(context)?
@@ -615,6 +644,10 @@ fn execute_operation_in_tx(
 
 /// The before-snapshot fields a state operation's delta reports.
 struct IssueSnapshot {
+    title: String,
+    description: Option<String>,
+    priority: i64,
+    issue_type: Option<String>,
     base_status: String,
     assignee: Option<String>,
     manual_blocked: Option<bool>,
@@ -626,6 +659,10 @@ struct IssueSnapshot {
 
 fn snapshot_of(conn: &Connection, issue: &Issue) -> Result<IssueSnapshot> {
     Ok(IssueSnapshot {
+        title: issue.title.clone(),
+        description: issue.description.clone(),
+        priority: issue.priority,
+        issue_type: issue.issue_type.clone(),
         base_status: issue.base_status.to_string(),
         assignee: issue.assignee.clone(),
         manual_blocked: issue.manual_blocked,
@@ -707,6 +744,18 @@ fn diff_snapshots(before: &IssueSnapshot, after: &IssueSnapshot) -> Value {
         "base_status",
         json!(before.base_status),
         json!(after.base_status),
+    );
+    field("title", json!(before.title), json!(after.title));
+    field(
+        "description",
+        json!(before.description),
+        json!(after.description),
+    );
+    field("priority", json!(before.priority), json!(after.priority));
+    field(
+        "issue_type",
+        json!(before.issue_type),
+        json!(after.issue_type),
     );
     field("assignee", json!(before.assignee), json!(after.assignee));
     field(

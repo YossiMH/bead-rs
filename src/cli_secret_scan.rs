@@ -250,9 +250,10 @@ fn canonical_request(command: &Command) -> Option<CanonicalRequest<'_>> {
                 .optional("assignee", opts.assignee.as_deref())
                 .optional("notes", opts.notes.as_deref())
                 .optional("notes", opts.append_notes.as_deref())
-                .optional("unsupported.title", opts.title.as_deref())
-                .optional("unsupported.description", opts.description.as_deref())
-                .optional("unsupported.issue_type", opts.issue_type_hidden.as_deref())
+                .optional("title", opts.title.as_deref())
+                .optional("description", opts.description.as_deref())
+                .optional("issue_type", opts.issue_type.as_deref())
+                .optional("reason", opts.reason.as_deref())
                 .optional("unsupported.label", opts.label.as_deref()),
         ),
         Command::Release(opts) => Some(
@@ -537,9 +538,9 @@ mod tests {
                     "status",
                     "assignee",
                     "notes",
-                    "unsupported.title",
-                    "unsupported.description",
-                    "unsupported.issue_type",
+                    "title",
+                    "description",
+                    "issue_type",
                     "unsupported.label",
                 ],
             ),

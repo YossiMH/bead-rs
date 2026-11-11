@@ -142,6 +142,46 @@ pub fn enforce_claimant_credential(
     validate_claim_epoch_for_mutation(tx, id, fencing_token)
 }
 
+/// One atomic edit of an existing issue. Omitted fields retain their values.
+/// Borrowed text is consumed synchronously while applying the edit.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct IssueEdit<'a> {
+    /// A replacement title, validated as 1-4096 UTF-8 bytes.
+    pub title: Option<&'a str>,
+    /// Exact replacement text; an empty string clears the description.
+    pub description: Option<&'a str>,
+    /// Priority in 0..=4. Every supplied priority requires a nonblank reason.
+    pub priority: Option<i64>,
+    /// Audit explanation for the supplied priority, preserved verbatim.
+    pub reason: Option<&'a str>,
+    /// Nonempty native type name, including custom types.
+    pub issue_type: Option<&'a str>,
+    /// Generic lifecycle transitions; close and reopen use their own commands.
+    pub status: Option<&'a str>,
+    /// Assignment replacement, subject to the current claimant's credential.
+    pub assignee: Option<&'a str>,
+    /// Clear assignment only where the existing lifecycle permits it.
+    pub clear_assignee: bool,
+    /// Exact replacement notes; mutually exclusive with append_notes.
+    pub notes: Option<&'a str>,
+    /// Text appended to the notes value read inside the write transaction.
+    pub append_notes: Option<&'a str>,
+    /// Expected issue revision, checked after acquiring the write lock.
+    pub if_revision: Option<i64>,
+    /// Credential issued for the issue's current claim tenure.
+    pub fencing_token: Option<i64>,
+    /// Existing audited operator recovery path; ordinary CLI/manifest edits omit it.
+    pub override_claim: Option<&'a str>,
+}
+
+/// Commit a complete edit under one revision and claim check.
+pub fn edit_issue(conn: &Connection, id: &str, edit: &IssueEdit<'_>) -> Result<String> {
+    let mut tx = begin_lifecycle_transaction(conn)?;
+    let result = edit_issue_in_tx(&mut tx, id, edit)?;
+    tx.commit()?;
+    Ok(result)
+}
+
 /// Update an issue
 #[allow(clippy::too_many_arguments)]
 #[allow(dead_code)]
@@ -240,34 +280,27 @@ fn update_issue_with_append_override(
     fencing_token: Option<i64>,
     override_claim: Option<&str>,
 ) -> Result<String> {
-    // Process in a write transaction taken before the read, so the revision
-    // precondition and lease are validated against the snapshot the UPDATE
-    // lands on (see begin_lifecycle_transaction)
-    let mut tx = begin_lifecycle_transaction(conn)?;
-
-    let result = update_issue_in_tx_with_append(
-        &mut tx,
+    edit_issue(
+        conn,
         id,
-        status,
-        assignee,
-        clear_assignee,
-        notes,
-        append_notes,
-        if_revision,
-        fencing_token,
-        override_claim,
-    )?;
-
-    tx.commit()?;
-    Ok(result)
+        &IssueEdit {
+            status,
+            assignee,
+            clear_assignee,
+            notes,
+            append_notes,
+            if_revision,
+            fencing_token,
+            override_claim,
+            ..IssueEdit::default()
+        },
+    )
 }
 
-/// Run one `bead update` against a caller-owned transaction (R033).
-///
-/// This is the entire command body between begin and commit, so the
-/// manifest composer and the command run the identical validation and
-/// apply path against whatever transaction holds the write lock.
+/// Retain the status, assignment and notes transaction API for library callers.
+/// Scalar metadata editing uses [`edit_issue_in_tx`] with the same guards.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)] // Public library compatibility; the CLI uses IssueEdit.
 pub fn update_issue_in_tx(
     tx: &mut Transaction,
     id: &str,
@@ -294,8 +327,9 @@ pub fn update_issue_in_tx(
 }
 
 /// Run an update with an optional atomic notes append against a caller-owned
-/// transaction.
+/// transaction. Retained for callers predating the complete IssueEdit request.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)] // Public library compatibility; the CLI uses IssueEdit.
 pub fn update_issue_in_tx_with_append(
     tx: &mut Transaction,
     id: &str,
@@ -308,12 +342,52 @@ pub fn update_issue_in_tx_with_append(
     fencing_token: Option<i64>,
     override_claim: Option<&str>,
 ) -> Result<String> {
+    edit_issue_in_tx(
+        tx,
+        id,
+        &IssueEdit {
+            status,
+            assignee,
+            clear_assignee,
+            notes,
+            append_notes,
+            if_revision,
+            fencing_token,
+            override_claim,
+            ..IssueEdit::default()
+        },
+    )
+}
+
+/// Apply the same guarded edit inside a caller-owned IMMEDIATE transaction.
+/// Manifest composition and dry-run own commit or rollback of this transaction.
+pub fn edit_issue_in_tx(tx: &mut Transaction, id: &str, edit: &IssueEdit<'_>) -> Result<String> {
+    let IssueEdit {
+        status,
+        assignee,
+        clear_assignee,
+        notes,
+        append_notes,
+        if_revision,
+        fencing_token,
+        override_claim,
+        ..
+    } = *edit;
+    let priority_actor = edit
+        .priority
+        .map(|_| super::comments::resolve_actor(None))
+        .transpose()?;
     let _secret_write = super::secret_boundary::guard_pairs(
         tx,
         &super::secret_boundary::selector("issue", id),
         "cli",
         &[
             ("id", id),
+            ("title", edit.title.unwrap_or("")),
+            ("description", edit.description.unwrap_or("")),
+            ("issue_type", edit.issue_type.unwrap_or("")),
+            ("reason", edit.reason.unwrap_or("")),
+            ("actor", priority_actor.as_deref().unwrap_or("")),
             ("status", status.unwrap_or("")),
             ("assignee", assignee.unwrap_or("")),
             ("notes", notes.unwrap_or("")),
@@ -331,6 +405,26 @@ pub fn update_issue_in_tx_with_append(
         return Err(Error::validation(
             "Cannot specify both --assignee and --clear-assignee",
         ));
+    }
+
+    if let Some(title) = edit.title {
+        crate::model::validate_title(title)?;
+    }
+    if let Some(description) = edit.description {
+        crate::model::validate_long_text(description)?;
+    }
+    if let Some(priority) = edit.priority {
+        crate::model::validate_priority(priority)?;
+        let reason = edit
+            .reason
+            .filter(|reason| !reason.trim().is_empty())
+            .ok_or_else(|| Error::cli_usage("--priority requires a nonblank --reason"))?;
+        crate::model::validate_long_text(reason)?;
+    } else if edit.reason.is_some() {
+        return Err(Error::cli_usage("--reason requires --priority"));
+    }
+    if edit.issue_type.is_some_and(str::is_empty) {
+        return Err(Error::validation("issue_type cannot be empty"));
     }
 
     // Get current issue state
@@ -374,15 +468,7 @@ pub fn update_issue_in_tx_with_append(
         }
     }
 
-    update_issue_impl(
-        tx,
-        &issue,
-        status,
-        assignee,
-        clear_assignee,
-        notes,
-        append_notes,
-    )
+    update_issue_impl(tx, &issue, edit, priority_actor.as_deref())
 }
 
 /// Release an issue
@@ -607,233 +693,201 @@ pub fn reopen_issue_with_override(
     Ok(result)
 }
 
-/// Implementation of update issue within a transaction
+/// Apply a validated edit without replacing identity or related records.
+/// All changed fields share one revision; priority adds its own audit detail.
 fn update_issue_impl(
     tx: &mut Transaction,
     issue: &Issue,
-    status: Option<&str>,
-    assignee: Option<&str>,
-    clear_assignee: bool,
-    notes: Option<&str>,
-    append_notes: Option<&str>,
+    edit: &IssueEdit<'_>,
+    priority_actor: Option<&str>,
 ) -> Result<String> {
-    let now = time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| "unknown".to_string());
-
-    let mut needs_update = false;
     let mut sql_parts = Vec::new();
-    let mut params: Vec<String> = vec![];
+    let mut params: Vec<String> = Vec::new();
+    let mut changed_fields = Vec::new();
+    for (field, assignment, old, replacement) in [
+        ("title", "title = ?", Some(issue.title.as_str()), edit.title),
+        (
+            "description",
+            "description = ?",
+            issue.description.as_deref(),
+            edit.description,
+        ),
+        (
+            "issue_type",
+            "issue_type = ?",
+            issue.issue_type.as_deref(),
+            edit.issue_type,
+        ),
+        ("notes", "notes = ?", issue.notes.as_deref(), edit.notes),
+    ] {
+        if let Some(value) = replacement.filter(|value| Some(*value) != old) {
+            sql_parts.push(assignment);
+            params.push(value.to_owned());
+            changed_fields.push(field);
+        }
+    }
+    let priority_changed = edit.priority.filter(|priority| *priority != issue.priority);
+    if let Some(priority) = priority_changed {
+        sql_parts.push("priority = ?");
+        params.push(priority.to_string());
+        changed_fields.push("priority");
+    }
 
-    // Handle status update
-    if let Some(new_status) = status {
-        // Special handling for "blocked" status: it is not a BaseStatus
-        // variant (BaseStatus::parse would always reject it), it's an
-        // overlay flag on top of whatever base_status the issue already
-        // has. Must be checked before parsing as a BaseStatus.
+    if let Some(new_status) = edit.status {
         if new_status.eq_ignore_ascii_case("blocked") {
             if issue.base_status == BaseStatus::Closed {
                 return Err(Error::conflict(
                     "Cannot set manual blocked flag on closed issue",
                 ));
             }
-            sql_parts.push("manual_blocked = 1");
-            needs_update = true;
+            if !issue.manual_blocked.unwrap_or(false) {
+                sql_parts.push("manual_blocked = 1");
+                changed_fields.push("manual_blocked");
+            }
         } else {
             let target_status = BaseStatus::parse(new_status)?;
-
-            // Closing has mandatory audit metadata and must go through the
-            // dedicated close operation. Allowing generic update to select
-            // Closed would bypass closed_at and close_reason invariants.
             if target_status == BaseStatus::Closed {
                 return Err(Error::conflict(
                     "Use 'close' command to transition an issue to closed",
                 ));
             }
-
-            // Validate transition
             if !issue.base_status.can_transition_to(&target_status) {
                 return Err(Error::conflict(format!(
                     "Invalid status transition from {} to {}",
                     issue.base_status, target_status
                 )));
             }
-
-            // Check if this is actually trying to reopen a closed issue
             if issue.base_status == BaseStatus::Closed && target_status == BaseStatus::Open {
                 return Err(Error::conflict(
                     "Use 'reopen' command to transition from closed to open",
                 ));
             }
-
-            sql_parts.push("base_status = ?");
-            params.push(new_status.to_string());
-            // An explicit non-blocked status transition clears any manual
-            // block, mirroring close/reopen's existing manual_blocked = 0
-            // reset -- otherwise "blocked" would be settable but never
-            // clearable via `update`.
-            sql_parts.push("manual_blocked = 0");
-            needs_update = true;
+            if target_status != issue.base_status {
+                sql_parts.push("base_status = ?");
+                params.push(target_status.to_string());
+                changed_fields.push("base_status");
+            }
+            if issue.manual_blocked.unwrap_or(false) {
+                sql_parts.push("manual_blocked = 0");
+                changed_fields.push("manual_blocked");
+            }
         }
     }
 
-    // Handle assignee update
-    if let Some(new_assignee) = assignee {
-        sql_parts.push("assignee = ?");
-        params.push(new_assignee.to_string());
-        needs_update = true;
-
-        // A change of holder is a new ownership tenure, so it mints the next
-        // claim epoch even though this path is not `bead claim`. Without the
-        // bump the reassignee inherits the previous holder's epoch, and that
-        // holder's still-matching credential would open the new claim -- the
-        // release-and-reassign hole this fence exists to close. The same
-        // statement that takes the assignment also mints the epoch, so both
-        // land or neither does under the revision guard below. The new holder
-        // reads the epoch back from `bead show --json`; `update` returns only
-        // the issue id. A legacy claim whose epoch is still 0 starts fencing
-        // from 1 here, so assignment fences exactly as a fresh claim does.
+    if let Some(new_assignee) = edit.assignee {
         if issue.assignee.as_deref() != Some(new_assignee) {
+            sql_parts.push("assignee = ?");
+            params.push(new_assignee.to_owned());
+            changed_fields.push("assignee");
+            // A different holder starts a new tenure and invalidates the old
+            // holder's credential in the same guarded update.
             sql_parts.push("claim_epoch = claim_epoch + 1");
         }
-    } else if clear_assignee {
-        // clear-assignee only works on open assigned issues
+    } else if edit.clear_assignee {
         match issue.base_status {
             BaseStatus::Open => {
                 if issue.assignee.is_some() {
                     sql_parts.push("assignee = NULL");
-                    needs_update = true;
-
-                    // Append assignment_cleared event
-                    let mut changed_fields = vec!["assignee"];
-                    if let Some(value) = status {
-                        changed_fields.push(if value.eq_ignore_ascii_case("blocked") {
-                            "manual_blocked"
-                        } else {
-                            "base_status"
-                        });
-                    }
-                    if notes.is_some() || append_notes.is_some() {
-                        changed_fields.push("notes");
-                    }
-                    append_event(
-                        tx,
-                        Some(&issue.id),
-                        "assignment_cleared",
-                        &json!({
-                            "prior_assignee": issue.assignee,
-                            "resulting_base_status": "open",
-                            "revision": issue.revision.unwrap_or(1) + 1,
-                            "changed_fields": changed_fields,
-                        }),
-                        &now,
-                    )?;
+                    changed_fields.push("assignee");
                 }
-                // If already unassigned, succeed idempotently without event
             }
             BaseStatus::InProgress => {
                 return Err(Error::conflict(
                     "Use 'release' command for in-progress issues",
-                ));
+                ))
             }
             BaseStatus::Deferred => {
                 return Err(Error::conflict(
                     "Cannot clear assignee on deferred issue - update status to open first",
-                ));
+                ))
             }
             BaseStatus::Closed => {
                 return Err(Error::conflict(
                     "Cannot modify closed issue - use 'reopen' first",
-                ));
+                ))
             }
         }
     }
 
-    // Handle notes update
-    if let Some(notes_value) = notes {
-        sql_parts.push("notes = ?");
-        params.push(notes_value.to_string());
-        needs_update = true;
-    }
-
-    if let Some(append_value) = append_notes {
+    if let Some(append_value) = edit.append_notes {
         let resulting_notes = match issue.notes.as_deref().filter(|value| !value.is_empty()) {
             Some(old) => format!("{old}\n\n{append_value}"),
-            None => append_value.to_string(),
+            None => append_value.to_owned(),
         };
-        sql_parts.push("notes = ?");
-        params.push(resulting_notes);
-        needs_update = true;
+        if issue.notes.as_deref() != Some(&resulting_notes) {
+            sql_parts.push("notes = ?");
+            params.push(resulting_notes);
+            changed_fields.push("notes");
+        }
     }
-
-    if !needs_update {
-        // No actual changes - succeed idempotently
+    if sql_parts.is_empty() {
         return Ok(issue.id.clone());
     }
 
-    // Add updated_at timestamp and increment revision
+    let now = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "unknown".to_owned());
     sql_parts.push("updated_at = ?");
     params.push(now.clone());
     sql_parts.push("revision = revision + 1");
-
-    // The UPDATE is conditional on the revision the caller's transaction
-    // validated, so a row that moved anyway (a snapshot taken without the
-    // write lock) affects zero rows and fails as a conflict instead of
-    // overwriting the newer state.
     let expected_revision = issue.revision.unwrap_or(1);
     let sql = format!(
         "UPDATE issues SET {} WHERE id = ? AND revision = ?",
         sql_parts.join(", ")
     );
+    let mut all_params: Vec<&dyn rusqlite::ToSql> = params
+        .iter()
+        .map(|value| value as &dyn rusqlite::ToSql)
+        .collect();
+    all_params.push(&issue.id);
+    all_params.push(&expected_revision);
+    let changed = tx.prepare_cached(&sql)?.execute(all_params.as_slice())?;
+    ensure_revision_row_affected(changed, expected_revision)?;
 
-    // Convert String params to &dyn ToSql for execution
-    let params_refs: Vec<&dyn rusqlite::ToSql> =
-        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-
-    {
-        let mut stmt = tx.prepare_cached(&sql)?;
-        let mut all_params = params_refs;
-        all_params.push(&issue.id as &dyn rusqlite::ToSql);
-        all_params.push(&expected_revision as &dyn rusqlite::ToSql);
-        let changed = stmt.execute(all_params.as_slice())?;
-        ensure_revision_row_affected(changed, expected_revision)?;
-    }
-
-    // Resource ownership follows the resulting lifecycle state. If an update
-    // enters or leaves in_progress, this reconciliation remains in the same
-    // transaction as the issue update and rolls back on a key conflict.
+    // Lifecycle-dependent resource locks remain inside this transaction; a
+    // conflicting key rolls back metadata, audit and assignment together.
     sync_issue_locks(tx, &issue.id)?;
-
-    // Append general update event if we made semantic changes
-    // (assignment_cleared already handled above)
-    if clear_assignee && issue.assignee.is_some() {
-        // Event already added
-    } else if status.is_some() || assignee.is_some() || notes.is_some() || append_notes.is_some() {
-        let mut changed_fields = Vec::new();
-        if status.is_some() {
-            changed_fields.push(
-                if status.is_some_and(|value| value.eq_ignore_ascii_case("blocked")) {
-                    "manual_blocked"
-                } else {
-                    "base_status"
-                },
-            );
-        }
-        if assignee.is_some() {
-            changed_fields.push("assignee");
-        }
-        if notes.is_some() || append_notes.is_some() {
-            changed_fields.push("notes");
-        }
+    if edit.clear_assignee && issue.assignee.is_some() {
+        append_event(
+            tx,
+            Some(&issue.id),
+            "assignment_cleared",
+            &json!({
+                "prior_assignee": issue.assignee,
+                "resulting_base_status": "open",
+                "revision": expected_revision + 1,
+                "changed_fields": changed_fields,
+            }),
+            &now,
+        )?;
+    } else {
         append_event(
             tx,
             Some(&issue.id),
             "updated",
-            &json!({"revision": expected_revision + 1, "changed_fields": changed_fields}),
+            &json!({
+                "revision": expected_revision + 1,
+                "changed_fields": changed_fields,
+            }),
             &now,
         )?;
     }
-
+    if let Some(priority) = priority_changed {
+        let actor =
+            priority_actor.ok_or_else(|| Error::integrity("priority edit has no audit actor"))?;
+        let detail = json!({
+            "old_priority": issue.priority,
+            "new_priority": priority,
+            "actor": actor,
+            "reason": edit.reason,
+            "revision": expected_revision + 1,
+            "changed_fields": ["priority"],
+        });
+        tx.execute(
+            "INSERT INTO events (issue_id, kind, detail, time, actor) VALUES (?1, 'priority_changed', ?2, ?3, ?4)",
+            (&issue.id, detail.to_string(), &now, actor),
+        )?;
+    }
     Ok(issue.id.clone())
 }
 

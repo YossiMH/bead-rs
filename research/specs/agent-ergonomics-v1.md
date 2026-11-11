@@ -535,11 +535,11 @@ where relevant.
 29. **AE-CLOSE-RECORD-NEVER-CLOSED** — a never-closed issue projects three
     JSON nulls and prints no text `Closed:`/`Reason:` lines.
 
-## 9. Out of scope and future decision
+## 9. Subsequent editing contract
 
-R041 does not accept `update --title`, `update --description`, or
-`update --priority`. The umbrella's observed 44 such attempts and one direct
-SQLite title write justify documenting the friction, but they do not settle
-whether a future audited operation should edit those fields. That question is
-tracked in the plan's Open questions with R037 and ADR-007 as the current
-immutable-field authority.
+R041 originally left scalar editing to a later product decision. The accepted
+[existing issue editing v1](issue-editing-v1.md) contract now enables title,
+description, priority and custom issue type through the guarded update command.
+It also extends description file/stdin transport to update and requires a
+nonblank priority reason. Consumers negotiate `issue_editing.version` and its
+advertised fields before enabling those controls.

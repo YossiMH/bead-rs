@@ -791,7 +791,7 @@ fn v1_refuses_semantics_no_command_has() {
         r#"{"manifest_version": 1, "operations": [{"op": "release", "id": "r033refuse-0"}]}"#,
         r#"{"manifest_version": 1, "operations": [{"op": "reopen", "id": "r033refuse-0"}]}"#,
         r#"{"manifest_version": 1, "operations": [
-            {"op": "update", "id": "r033refuse-0", "title": "retitled"}]}"#,
+            {"op": "update", "id": "r033refuse-0", "created_at": "2026-11-11T00:00:00Z"}]}"#,
         r#"{"manifest_version": 1, "operations": [
             {"op": "create", "title": "t", "when": "* * * * *"}]}"#,
     ] {

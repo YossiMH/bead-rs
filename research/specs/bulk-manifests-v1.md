@@ -76,16 +76,22 @@ the existing bead's real ID.
  "clear_assignee": false, "notes": null, "if_revision": null}
 ```
 
-At least one of `status`, `assignee`, `clear_assignee`, `notes` MUST be
-supplied; a bare `{"op": "update", "id": ...}` is malformed input. Values
-and rules are exactly `bead update`'s: `status` accepts the same values
-(`open`, `in_progress`, `deferred`, `blocked`) and rejects `closed` with
-the use-`close` remedy; `assignee` and `clear_assignee` are mutually
-exclusive; `if_revision` is the optimistic concurrency guard and fails
-with the same conflict (exit 4) against the revision current at this
-operation's position in the manifest. `--fencing-token` has no manifest
-spelling in v1: an operation touching a leased issue fails closed exactly
-as the command does without a token.
+Update also accepts `title`, `description`, `clear_description`, `priority`,
+`reason` and `issue_type`, as defined by [existing issue editing](issue-editing-v1.md).
+At least one editable field MUST be supplied; a bare update is malformed input.
+Empty description clears it. `clear_description: true` conflicts with an explicit
+description. File/stdin inputs are CLI transports; manifests carry text directly.
+Priority requires a nonblank reason and produces an attributed `priority_changed`
+event only when its value changes.
+
+All fields use the same guarded operation as `bead update`. `status` accepts
+`open`, `in_progress`, `deferred` and `blocked`; `closed` requires `close`.
+`assignee` and `clear_assignee` are mutually exclusive. `if_revision` checks the
+revision at this operation's position in the transaction and conflicts with exit
+4. Manifest v1 exposes neither fencing credentials nor claimant recovery, so an
+edit of a claimed issue is refused. Scalar edits preserve related records and
+unknown extensions. Dry-run applies the operation and rolls back; commit is
+atomic across the whole manifest.
 
 ### `label add` / `label remove`
 
@@ -272,8 +278,8 @@ information.
   query-scoped mutation, and per-operation fencing tokens.
 - Any control flow: conditionals, loops, includes of other manifests,
   templating, or computed values.
-- Mutation of fields immutable after create (title, description,
-  priority, issue type) — the same refusal `bead update` gives.
+- Direct writes to system-owned identity, timestamps, revisions, claim
+  credentials or audit records.
 - Reading a manifest from anywhere but a filesystem path named by
   `--input`.
 - Archaeology views and any checkpoint artifact as a manifest source.

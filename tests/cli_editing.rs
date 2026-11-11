@@ -330,6 +330,8 @@ fn description_file_stdin_and_clear_preserve_exact_text() {
     let path = root.join("description.txt");
     let description = "- opening line\nתיאור עם סימנים ✨\n";
     fs::write(&path, description).unwrap();
+    let notes_path = root.join("notes.txt");
+    fs::write(&notes_path, "Notes from another file\n").unwrap();
     let output = command(root)
         .args([
             "update",
@@ -339,11 +341,17 @@ fn description_file_stdin_and_clear_preserve_exact_text() {
             "--description-file",
         ])
         .arg(&path)
+        .arg("--notes-file")
+        .arg(&notes_path)
         .output()
         .unwrap();
     assert_success(&output);
     assert_eq!(stored_issue(root, &issue_id)["description"], description);
     assert_eq!(stored_issue(root, &issue_id)["title"], "- renamed");
+    assert_eq!(
+        stored_issue(root, &issue_id)["notes"],
+        "Notes from another file\n"
+    );
 
     let mut child = command(root)
         .args(["update", &issue_id, "--description-file", "-"])
@@ -645,11 +653,76 @@ fn priority_change_records_reason_actor_and_changes_ready_order() {
     assert_eq!(events[0]["actor"], "editing-test");
     assert_eq!(events[0]["reason"], "Urgent customer repair");
     let history = json_output(root, &["history", &promoted, "--json"]);
-    assert!(history
+    let priority_event = history
         .as_array()
         .unwrap()
         .iter()
-        .any(|entry| entry["kind"] == "priority_changed"));
+        .find(|entry| entry["kind"] == "priority_changed")
+        .unwrap();
+    assert_eq!(priority_event["actor"], "editing-test");
+    assert_eq!(
+        priority_event["revision"],
+        stored_issue(root, &promoted)["revision"]
+    );
+}
+
+#[test]
+fn repeated_edits_are_noops_after_revision_and_claim_checks() {
+    let workspace = workspace();
+    let root = workspace.path();
+    let issue_id = create_issue(root, "Repeated edits");
+    assert_success(&run(
+        root,
+        &[
+            "update",
+            &issue_id,
+            "--status",
+            "in_progress",
+            "--assignee",
+            "holder",
+            "--notes",
+            "Kept notes",
+        ],
+    ));
+    let before = snapshot(root, &issue_id);
+    let epoch = before.issue["claim_epoch"].as_i64().unwrap().to_string();
+    let revision = before.issue["revision"].as_i64().unwrap().to_string();
+    let arguments = [
+        "update",
+        &issue_id,
+        "--status",
+        "in_progress",
+        "--assignee",
+        "holder",
+        "--notes",
+        "Kept notes",
+        "--fencing-token",
+        &epoch,
+        "--if-revision",
+        &revision,
+    ];
+    assert_success(&run(root, &arguments));
+    assert_eq!(snapshot(root, &issue_id), before);
+    let preview = command(root)
+        .args(arguments)
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["semantic_change"], false);
+    for guard in [
+        vec![],
+        vec!["--fencing-token", &epoch, "--if-revision", "0"],
+    ] {
+        let output = command(root)
+            .args(["update", &issue_id, "--notes", "Kept notes"])
+            .args(guard)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(4), "{output:?}");
+        assert_eq!(snapshot(root, &issue_id), before);
+    }
 }
 
 #[test]
@@ -823,10 +896,11 @@ fn manifest_edits_and_dependency_changes_commit_together() {
     assert_eq!(after["priority"], 1);
     assert_eq!(after["issue_type"], "investigation");
     assert_eq!(after["notes"], "Manifest notes");
-    assert_eq!(
-        json_output(root, &["show", &issue_id, "--json"])["dependencies"],
-        json!([{"blocker":new_blocker,"kind":"blocks"}])
-    );
+    let shown = json_output(root, &["show", &issue_id, "--json"]);
+    let dependencies = shown["dependencies"].as_array().unwrap();
+    assert_eq!(dependencies.len(), 1);
+    assert_eq!(dependencies[0]["blocker"], new_blocker);
+    assert_eq!(dependencies[0]["kind"], "blocks");
     assert_eq!(event_details(root, &issue_id, "priority_changed").len(), 1);
 }
 
@@ -901,6 +975,7 @@ fn edited_content_and_audit_survive_published_checkpoint_restore() {
     assert_ne!(edited.pointer_bytes, before.pointer_bytes);
     let checkpoint = root.join(".beads/checkpoint");
     let restored = tempfile::tempdir().unwrap();
+    assert_success(&run(restored.path(), &["init", "--prefix", "edit"]));
     let output = command(restored.path())
         .args(["sync", "import-only", "--input"])
         .arg(checkpoint)

@@ -1,6 +1,8 @@
 # ADR-007: CLI errors for immutable fields and near-miss flags must name the remedy
 
-**Status**: Proposed
+**Status**: Historical message-quality decision; scalar immutability superseded
+by [existing issue editing v1](../../research/specs/issue-editing-v1.md) on 2026-11-11.
+The bounded near-miss and dedicated label-command remedies remain applicable.
 
 **Date**: 2026-08-16
 

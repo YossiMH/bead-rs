@@ -241,8 +241,8 @@ Mistake: manufacturing an ID or inferring chronology from its spelling.
 ### `title`
 
 Checkpoint and CLI: required non-null string, no default, caller-owned by
-`create` only. Example: `"Verify restore invariants"`. Length is 1–4096 UTF-8
-bytes. Mistake: attempting `update --title`, which is a usage error.
+`create` and `update`. Example: `"Verify restore invariants"`. Length is 1–4096
+UTF-8 bytes. Use `--if-revision` to reject stale edits.
 
 ### `revision`
 
@@ -260,8 +260,9 @@ and a holder of the pre-merge token cannot mutate replaced content.
 
 Checkpoint: optional nullable string with no creation default; absent when
 `create` omits `--description`. CLI: required projection string, materialized
-as `""` from an absent checkpoint member. Caller-owned by `create` only,
-maximum 4 MiB.
+as `""` from an absent checkpoint member. Caller-owned by `create` and `update`,
+maximum 4 MiB. Update accepts inline text, a UTF-8 file or `--clear-description`;
+empty text clears the field. See [existing issue editing](issue-editing-v1.md).
 Example: `"Rehearse flush and restore."`. Mistake: treating absent checkpoint
 description, explicit null, and projected empty text as interchangeable.
 
@@ -279,9 +280,11 @@ Mistake: expecting `create --notes` or assuming notes are private.
 
 ### `priority`
 
-Checkpoint and CLI: required non-null integer, caller-owned by `create` only;
-default and example `2`. Values are P0 urgent, P1 critical, P2 high (native
-default), P3 normal, and P4 aspirational/backlog. Lower is more urgent.
+Checkpoint and CLI: required non-null integer, caller-owned by `create` and
+`update --priority N --reason TEXT`; default and example `2`. Real priority
+changes emit `priority_changed` with old/new priorities, actor and reason.
+Unchanged priority is a no-op after revision and claim validation. Values are
+P0 urgent, P1 critical, P2 high (native default), P3 normal, and P4 aspirational/backlog. Lower is more urgent.
 Mistake: calling P2 normal or reversing the ordering.
 
 ### `base_status`
@@ -319,8 +322,8 @@ Release applies to `in_progress` work; an open assigned bead uses `update
 ### `issue_type`
 
 Checkpoint only: optional nullable string, effective default and example
-`"task"`, caller-owned by `create` only. It is a free nonempty string with no
-enumerated value validation. Mistake: attempting to update it or treating the
+`"task"`, caller-owned by `create` and `update --issue-type`. It is a free
+nonempty string with no enumerated value validation. Mistake: treating the
 examples in CLI help as an exhaustive enum.
 
 ### `created_at`
@@ -532,7 +535,10 @@ fields.
 Allowed transitions are: `open` to `in_progress`, `deferred`, or `closed`;
 `in_progress` to `open`, `deferred`, or `closed`; `deferred` to `open` or
 `closed`; and `closed` to `open` only through `reopen`. Same-state behavior is
-command-specific and may be idempotent.
+command-specific. Update validates revision and claimant credentials even for
+repeated values, then leaves rows and events unchanged when every supplied
+value is unchanged. Scalar metadata edits on closed issues preserve their close
+record; lifecycle transitions retain the dedicated close/reopen commands.
 
 An issue is ready exactly when base status is `open`, it is not manually
 blocked, it has no assignee, and it has no active unfinished `blocks` blocker.

@@ -54,7 +54,9 @@ use std::collections::HashSet;
 /// `show`/`list --fields` validation (`CLI_ISSUE_FIELDS`), and the
 /// notes/comments entries record that appended history belongs in comments
 /// (R010), not in notes (beadrs-0f854018).
-pub const FIELD_GUIDE_VERSION: i64 = 13;
+/// v14: guarded scalar issue edits, attributed priority changes and matching
+/// update/dry-run/manifest semantics are advertised by issue_editing v1.
+pub const FIELD_GUIDE_VERSION: i64 = 14;
 
 /// Artifact identity carried by every `bead schema explain` response, per the
 /// accepted field-guide contract (`research/specs/native-field-guide-v1.md`).
@@ -321,6 +323,8 @@ fn names(kind: &str) -> &'static [&'static str] {
             "version",
             "store_layout",
             "atomic_claim",
+            "priority_change",
+            "issue_editing",
             "priorities",
             "statuses",
             "dependency_kinds",
@@ -569,7 +573,7 @@ fn property_schema(kind: &str, name: &str) -> Value {
         ("audit_event", "kind") => {
             json!({"type":"string", "enum":[
                 "created","updated","claimed","released","reopened","closed",
-                "assignment_cleared","lease_renewed","claim_override",
+                "assignment_cleared","priority_changed","lease_renewed","claim_override",
                 "label_added","label_removed",
                 "dependency_added","dependency_removed",
                 "data_set","data_removed",
@@ -656,7 +660,8 @@ fn property_schema(kind: &str, name: &str) -> Value {
         | ("capabilities", "logical_revision")
         | ("capabilities", "auto_flush")
         | ("capabilities", "auto_stage")
-        | ("capabilities", "attempt_summary") => {
+        | ("capabilities", "attempt_summary")
+        | ("capabilities", "priority_change") => {
             json!({"type":"boolean"})
         }
         // The native dependency write set, the same posture as the
@@ -672,6 +677,17 @@ fn property_schema(kind: &str, name: &str) -> Value {
         | ("capabilities", "commands") => json!({"type":"array"}),
         ("capabilities", "priorities") => json!({"type":"object"}),
         ("capabilities", "agent_ergonomics") => json!({"type":"object"}),
+        ("capabilities", "issue_editing") => json!({
+            "type":"object", "additionalProperties":false,
+            "required":["version","fields","clear_description","revision_guard","priority_reason_required"],
+            "properties":{
+                "version":{"const":1},
+                "fields":{"type":"array","uniqueItems":true,"items":{"type":"string","enum":["title","description","priority","issue_type","notes","status","assignee"]}},
+                "clear_description":{"type":"boolean"},
+                "revision_guard":{"type":"boolean"},
+                "priority_reason_required":{"type":"boolean"}
+            }
+        }),
         ("capabilities", "attempt_outcome")
         | ("capabilities", "secret_scan")
         | ("capabilities", "historical_redaction") => {
@@ -1098,12 +1114,12 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
         },
         ("cli_issue", "title") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: false,
             default: Value::Null,
             example: json!("Verify restore invariants"),
-            invariants: &["1-4096 UTF-8 bytes", "immutable after create"],
-            common_mistake: "Attempting update --title, which is a usage error.",
+            invariants: &["1-4096 UTF-8 bytes", "updated atomically with revision and claim guards"],
+            common_mistake: "Saving a stale title without --if-revision.",
         },
         ("cli_issue", "revision") => FieldSemantics {
             ownership: "system",
@@ -1121,14 +1137,15 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
         },
         ("cli_issue", "description") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: true,
             default: json!(""),
             example: json!("Rehearse flush and restore."),
             invariants: &[
                 "maximum 4 MiB",
+                "update accepts exact inline/file text or explicit clearing to an empty string",
                 "absent checkpoint description materializes as the empty string in this projection",
-                "immutable after create",
+                "updated atomically with revision and claim guards",
             ],
             common_mistake:
                 "Treating checkpoint absence, explicit null, and projected empty text as interchangeable.",
@@ -1143,14 +1160,14 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
                 "maximum 4 MiB",
                 "checkpoint content, not a secret store",
                 "absent checkpoint notes materialize as the empty string in this projection",
-                "written only through update --notes, which replaces the whole field",
+                "update --notes or --notes-file replaces the field; --append-notes appends atomically",
                 "appended history belongs in comments (R010), not here: notes are re-read in full by JSON consumers, so show text caps them by default",
             ],
             common_mistake: "Expecting create --notes, assuming notes are private, or growing notes as an append log instead of using comments (R010).",
         },
         ("cli_issue", "priority") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: true,
             default: json!(2),
             example: json!(2),
@@ -1158,7 +1175,9 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
                 "integer from 0 through 4",
                 "P0 urgent, P1 critical, P2 high (native default), P3 normal, P4 aspirational",
                 "lower is more urgent",
-                "fixed at creation",
+                "update --priority requires a nonblank --reason; real changes emit attributed priority_changed events",
+                "an unchanged priority has no priority audit event",
+                "updated atomically with revision and claim guards",
             ],
             common_mistake: "Calling P2 normal or reversing the ordering.",
         },
@@ -1334,12 +1353,12 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
         },
         ("checkpoint_issue", "title") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: false,
             default: Value::Null,
             example: json!("Verify restore invariants"),
-            invariants: &["1-4096 UTF-8 bytes", "immutable after create"],
-            common_mistake: "Attempting update --title, which is a usage error.",
+            invariants: &["1-4096 UTF-8 bytes", "updated atomically with revision and claim guards"],
+            common_mistake: "Saving a stale title without --if-revision.",
         },
         ("checkpoint_issue", "revision") => FieldSemantics {
             ownership: "system",
@@ -1359,13 +1378,14 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
         },
         ("checkpoint_issue", "description") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: false,
             default: Value::Null,
             example: json!("Rehearse flush and restore."),
             invariants: &[
                 "optional nullable string; absent when create omits --description",
                 "maximum 4 MiB",
+                "update accepts exact inline/file text or explicit clearing to an empty string",
             ],
             common_mistake:
                 "Treating absent checkpoint description, explicit null, and projected empty text as interchangeable.",
@@ -1380,13 +1400,13 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
                 "optional nullable string with live default empty string",
                 "maximum 4 MiB",
                 "checkpoint content, not a secret store",
-                "written only through update --notes, which replaces the whole field",
+                "update --notes or --notes-file replaces the field; --append-notes appends atomically",
             ],
             common_mistake: "Expecting create --notes or assuming notes are private.",
         },
         ("checkpoint_issue", "priority") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: true,
             default: json!(2),
             example: json!(2),
@@ -1394,7 +1414,9 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
                 "integer from 0 through 4",
                 "P0 urgent, P1 critical, P2 high (native default), P3 normal, P4 aspirational",
                 "lower is more urgent",
-                "fixed at creation",
+                "update --priority requires a nonblank --reason; real changes emit attributed priority_changed events",
+                "an unchanged priority has no priority audit event",
+                "updated atomically with revision and claim guards",
             ],
             common_mistake: "Calling P2 normal or reversing the ordering.",
         },
@@ -1459,17 +1481,17 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
         },
         ("checkpoint_issue", "issue_type") => FieldSemantics {
             ownership: "caller",
-            operations: &["create"],
+            operations: &["create", "update"],
             has_default: true,
             default: json!("task"),
             example: json!("task"),
             invariants: &[
                 "free nonempty string with no enumerated value validation",
                 "effective default task",
-                "fixed at creation",
+                "updated atomically with revision and claim guards",
             ],
             common_mistake:
-                "Attempting to update it or treating the examples in CLI help as an exhaustive enum.",
+                "Treating the examples in CLI help as an exhaustive enum.",
         },
         ("checkpoint_issue", "created_at") => FieldSemantics {
             ownership: "system",
@@ -1748,7 +1770,7 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
             example: json!("updated"),
             invariants: &[
                 "required nonempty string",
-                "the published JSON Schema enum enumerates every kind the stores write: created, updated, claimed, released, reopened, closed, assignment_cleared, lease_renewed, claim_override, label_added, label_removed, dependency_added, dependency_removed, data_set, data_removed, external_ref_added, external_ref_removed, resource_keys_added, resource_keys_removed, attempt_resolved, checkpoint_restored, checkpoint_imported, checkpoint_monolithic, checkpoint_sharded, workspace_forked, historical_redaction, secret_acknowledged",
+                "the published JSON Schema enum enumerates every kind the stores write: created, updated, claimed, released, reopened, closed, assignment_cleared, priority_changed, lease_renewed, claim_override, label_added, label_removed, dependency_added, dependency_removed, data_set, data_removed, external_ref_added, external_ref_removed, resource_keys_added, resource_keys_removed, attempt_resolved, checkpoint_restored, checkpoint_imported, checkpoint_monolithic, checkpoint_sharded, workspace_forked, historical_redaction, secret_acknowledged",
                 "checkpoint_monolithic and checkpoint_sharded are the merge import summary kinds, selected by checkpoint mode",
                 "import preserves foreign kinds verbatim",
             ],
@@ -3056,6 +3078,28 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
             invariants: &["always true: claims are atomic selection, assignment, and transition"],
             common_mistake: "Building around a non-atomic claim that this contract does not have.",
         },
+        ("capabilities", "priority_change") => FieldSemantics {
+            ownership: "system",
+            operations: &["capabilities"],
+            has_default: false,
+            default: Value::Null,
+            example: json!(true),
+            invariants: &["true advertises guarded priority edits with a required reason and attributed priority_changed audit"],
+            common_mistake: "Assuming older executables accept --priority without negotiating this field.",
+        },
+        ("capabilities", "issue_editing") => FieldSemantics {
+            ownership: "system",
+            operations: &["capabilities"],
+            has_default: false,
+            default: Value::Null,
+            example: json!({"version":1,"fields":["title","description","priority","issue_type","notes","status","assignee"],"clear_description":true,"revision_guard":true,"priority_reason_required":true}),
+            invariants: &[
+                "version 1 names the exact supported update fields and guards",
+                "one edit is atomic across all supplied fields",
+                "absence means consumers must retain the older restricted editing surface",
+            ],
+            common_mistake: "Enabling unsupported fields based only on the executable version.",
+        },
         ("capabilities", "priorities") => FieldSemantics {
             ownership: "system",
             operations: &["capabilities"],
@@ -4149,7 +4193,7 @@ fn guide_operations() -> Vec<Value> {
             ],
             rules: &[
                 "only public entry point for new native issues",
-                "title, description, priority, assignee, issue_type, and labels are fixed at creation",
+                "sets initial title, description, priority, assignee, issue_type, and labels",
                 "appends the created audit event",
             ],
         },
@@ -4316,6 +4360,10 @@ fn guide_operations() -> Vec<Value> {
             ownership_effect: "mutates caller-owned fields",
             failure_exits: &[2, 3, 4],
             affected_fields: &[
+                "title",
+                "description",
+                "priority",
+                "issue_type",
                 "assignee",
                 "base_status",
                 "claim_epoch",
@@ -4327,7 +4375,11 @@ fn guide_operations() -> Vec<Value> {
             rules: &[
                 "accepts a previously read revision through --if-revision",
                 "a held claim epoch must be presented with --fencing-token",
-                "cannot modify title, description, priority, or issue_type",
+                "title, description, priority, issue_type, notes, status and assignment share one guarded transaction",
+                "priority requires a nonblank reason and real changes emit priority_changed with old/new priorities and actor",
+                "repeated values are no-ops after revision and claimant validation",
+                "scalar edits on closed issues retain the close record",
+                "dry-run executes the same operation and rolls back",
                 "cannot enter or leave closed (use close or reopen)",
                 "--status blocked sets the manual overlay without changing base status",
                 "reassigning to a different worker mints a new claim epoch",

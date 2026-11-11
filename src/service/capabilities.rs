@@ -21,6 +21,12 @@ pub struct Capabilities {
     pub store_layout: i32,
     /// Whether atomic claim is supported
     pub atomic_claim: bool,
+    /// Audited priority edits through the guarded update command.
+    #[serde(default)]
+    pub priority_change: bool,
+    /// Versioned editable-field contract; absent on older executables.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_editing: Option<IssueEditingCapabilities>,
     /// Priority range and behavior
     pub priorities: Priorities,
     /// Valid status values
@@ -78,6 +84,21 @@ pub struct Capabilities {
     /// Audited historical-redaction capability handshake (ADR-015).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub historical_redaction: Option<HistoricalRedactionCapabilities>,
+}
+
+/// Native issue editing negotiated independently of the executable version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueEditingCapabilities {
+    /// Contract version for the field and validation meanings below.
+    pub version: u32,
+    /// Exact supported names in the native update command.
+    pub fields: Vec<String>,
+    /// Description can be explicitly cleared to empty text.
+    pub clear_description: bool,
+    /// One expected revision guards every supplied field together.
+    pub revision_guard: bool,
+    /// Supplying priority requires a nonblank audit reason.
+    pub priority_reason_required: bool,
 }
 
 /// JSON document shapes advertised to agent consumers.
@@ -246,6 +267,25 @@ pub fn generate_capabilities_with_secret_mode(
         version: env!("CARGO_PKG_VERSION").to_string(),
         store_layout: 1,
         atomic_claim: true,
+        priority_change: true,
+        issue_editing: Some(IssueEditingCapabilities {
+            version: 1,
+            fields: [
+                "title",
+                "description",
+                "priority",
+                "issue_type",
+                "notes",
+                "status",
+                "assignee",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            clear_description: true,
+            revision_guard: true,
+            priority_reason_required: true,
+        }),
         priorities: Priorities {
             min: 0,
             max: 4,
