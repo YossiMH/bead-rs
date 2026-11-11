@@ -2100,3 +2100,41 @@ for task coordination. Scotty's machine-local task data stays on the PC.
   branch `task/build-transfer-20261111` from `YossiMH/bead-me-up-scotty`
   after delivery; it holds executable chunks and source bundles. No
   worktree removal or temporary-branch deletion is credited here.
+
+### Windows native verification — tray and delivery pending
+
+- Runtime source `539cdd0b4c54665c2db01da08fdf9f3871f7148a` corrects one
+  checkpoint configuration call site to use the existing Windows-aware
+  directory flush helper. The unchanged configuration suite passed 5/5 and
+  filesystem suite passed 3/3; formatting and all-targets Clippy with
+  warnings denied also passed. The earlier full-suite accounting, resolved
+  failures, 62 affected tests and eight existing ignored tests remain the
+  cloud verification provenance above. No additional complete suite is
+  credited for this correction.
+- The archive-built Windows x64 executable `bead-editing-539cdd0.exe` has
+  SHA-256
+  `25a05bdfd8feaea92faf6827e9268e597d25432826f1082c7ebadc3af8658798`.
+  The actual Windows native smoke passed all 55 command expectations in
+  2.99 seconds, BelowNormal, on 2026-11-11 at 20:48 UTC. It verified scalar
+  edits, quoted and Unicode text, 54,000-byte description and 42,000-byte
+  notes file inputs, both clear forms, labels and all three dependency
+  kinds. A stale revision preserved the issue, audit and checkpoint;
+  successful automatic publication restored the edited fields, metadata,
+  labels, dependency graph and priority history into an empty workspace.
+  The task returned zero and removed its owned fixtures. Session receipt:
+  `/workspace/scratch/51bd923093d4/results/windows-native-v3.json`, run
+  `5f2c9c6a00f24f4b8e803c81df22f3c9`.
+- The earlier `0eaace27` Windows pin is superseded. Native attempt v1 passed
+  its first 38 commands, then exposed the configuration directory-open
+  failure corrected in `539cdd0`. Attempt v2 used the corrected executable
+  and passed configuration, publication and stale-edit checks, but the
+  PowerShell 5.1 fixture counted an empty JSON array as one pipeline object.
+  The reviewed fixture correction checks the successful query's raw empty
+  array document; restore equality and audit assertions remain intact.
+  Attempt v3 passed with that correction and the same `539cdd0` executable.
+- This qualification used staged binaries and new test workspaces. Tray
+  execution, configured-launcher qualification, main-branch publication,
+  installation, final coordination checkpoint persistence and cleanup
+  remain pending in this entry. Preserve the original checkpoint and the
+  earlier worktree and temporary-branch recovery instructions until root
+  records those outcomes.
