@@ -75,6 +75,10 @@ the resulting fields and rolls it back. It validates revision, claims, lifecycle
 and content exactly as commit does. Its before/after projection includes title,
 description, priority, issue type and notes.
 
+Text fields containing scan findings are replaced by `[REDACTED:bead-rs]` in
+both preview states and assignment summaries, according to the workspace scan
+mode. Clean text remains exact. This output masking never changes stored values.
+
 Manifest v1 `update` accepts `title`, `description`, `clear_description`,
 `priority`, `reason` and `issue_type` alongside its existing fields. Empty
 description clears it; `clear_description` conflicts with an explicit description.
@@ -85,6 +89,9 @@ claim ownership therefore cannot be bypassed by composing an edit in a manifest.
 All manifest operations, including scalar edits and dependency changes, either
 commit together or roll back together. Dry-run uses that same transaction and
 rolls it back.
+Scalar delta values use the same output masking after comparison of raw values,
+so distinct detected texts still report a change even when their displayed
+markers are equal. Notes retain the boolean `notes_changed` delta.
 
 ## Capability negotiation
 

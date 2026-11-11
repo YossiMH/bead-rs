@@ -778,6 +778,152 @@ fn priority_requires_a_reason_and_same_value_has_no_priority_event() {
 }
 
 #[test]
+fn dry_run_redacts_new_text_fields_and_assignment_summary() {
+    let workspace = workspace();
+    let root = workspace.path();
+    let issue_id = create_issue(root, "Clean title");
+    let before = snapshot(root, &issue_id);
+    let placeholder = format!("{}{}", ["AK", "IA"].concat(), "A".repeat(16));
+    let output = command(root)
+        .args([
+            "update",
+            &issue_id,
+            "--title",
+            &placeholder,
+            "--description",
+            &placeholder,
+            "--notes",
+            &placeholder,
+            "--issue-type",
+            &placeholder,
+            "--assignee",
+            &placeholder,
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains(&placeholder));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(&placeholder));
+    let preview: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(preview["before"]["title"], "Clean title");
+    for field in ["title", "description", "notes", "issue_type", "assignee"] {
+        assert_eq!(preview["after"][field], "[REDACTED:bead-rs]", "{field}");
+    }
+    assert!(preview["message"]
+        .as_str()
+        .unwrap()
+        .contains("assignee: none -> [REDACTED:bead-rs]"));
+    assert_eq!(snapshot(root, &issue_id), before);
+}
+
+#[test]
+fn dry_run_redacts_stored_closed_metadata_and_preserves_exact_clean_text() {
+    let workspace = workspace();
+    let root = workspace.path();
+    let placeholder = format!("{}{}", ["AK", "IA"].concat(), "A".repeat(16));
+    let issue_id = create_issue(root, &placeholder);
+    assert_success(&run(
+        root,
+        &[
+            "update",
+            &issue_id,
+            "--description",
+            &placeholder,
+            "--notes",
+            &placeholder,
+            "--issue-type",
+            &placeholder,
+            "--assignee",
+            &placeholder,
+        ],
+    ));
+    let epoch = stored_issue(root, &issue_id)["claim_epoch"]
+        .as_i64()
+        .unwrap()
+        .to_string();
+    assert_success(&run(
+        root,
+        &[
+            "close",
+            &issue_id,
+            "--reason",
+            "Closed fixture",
+            "--fencing-token",
+            &epoch,
+        ],
+    ));
+    let before = snapshot(root, &issue_id);
+    assert_eq!(before.issue["base_status"], "closed");
+    for field in ["title", "description", "notes", "issue_type", "assignee"] {
+        assert_eq!(before.issue[field], placeholder, "{field}");
+    }
+    let clean_title = "- כותרת ✨";
+    let clean_description = "- exact description\nתיאור\n";
+    let clean_notes = "Notes with \"quotes\"\nsecond line\n";
+    let output = command(root)
+        .args([
+            "update",
+            &issue_id,
+            "--title",
+            clean_title,
+            "--description",
+            clean_description,
+            "--notes",
+            clean_notes,
+            "--issue-type",
+            "investigation",
+            "--assignee",
+            "reviewer",
+            "--fencing-token",
+            &epoch,
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains(&placeholder));
+    let preview: Value = serde_json::from_str(&stdout).unwrap();
+    for field in ["title", "description", "notes", "issue_type", "assignee"] {
+        assert_eq!(preview["before"][field], "[REDACTED:bead-rs]", "{field}");
+    }
+    for (field, expected) in [
+        ("title", clean_title),
+        ("description", clean_description),
+        ("notes", clean_notes),
+        ("issue_type", "investigation"),
+        ("assignee", "reviewer"),
+    ] {
+        assert_eq!(preview["after"][field], expected, "{field}");
+    }
+    assert_eq!(preview["after"]["base_status"], "closed");
+    assert_eq!(preview["after"]["closed_at"], before.issue["closed_at"]);
+    assert_eq!(snapshot(root, &issue_id), before);
+
+    let reopened = run(
+        root,
+        &["reopen", &issue_id, "--fencing-token", &epoch, "--dry-run"],
+    );
+    assert_success(&reopened);
+    let stdout = String::from_utf8(reopened.stdout).unwrap();
+    assert!(!stdout.contains(&placeholder));
+    let preview: Value = serde_json::from_str(&stdout).unwrap();
+    for state in ["before", "after"] {
+        for field in ["title", "description", "notes", "issue_type"] {
+            assert_eq!(
+                preview[state][field], "[REDACTED:bead-rs]",
+                "{state}.{field}"
+            );
+        }
+    }
+    assert_eq!(preview["before"]["assignee"], "[REDACTED:bead-rs]");
+    assert!(preview["after"]["assignee"].is_null());
+    assert_eq!(snapshot(root, &issue_id), before);
+}
+
+#[test]
 fn dry_run_projects_the_committed_edit_without_writing() {
     let workspace = workspace();
     let root = workspace.path();
@@ -902,6 +1048,72 @@ fn manifest_edits_and_dependency_changes_commit_together() {
     assert_eq!(dependencies[0]["blocker"], new_blocker);
     assert_eq!(dependencies[0]["kind"], "blocks");
     assert_eq!(event_details(root, &issue_id, "priority_changed").len(), 1);
+}
+
+#[test]
+fn manifest_output_redacts_scalar_changes_without_masking_stored_values() {
+    let workspace = workspace();
+    let root = workspace.path();
+    let old_text = format!("{}{}", ["AK", "IA"].concat(), "A".repeat(16));
+    let new_text = format!("{}{}", ["AK", "IA"].concat(), "B".repeat(16));
+    let issue_id = create_issue(root, &old_text);
+    assert_success(&run(
+        root,
+        &[
+            "update",
+            &issue_id,
+            "--description",
+            &old_text,
+            "--issue-type",
+            &old_text,
+            "--notes",
+            &old_text,
+        ],
+    ));
+    let before = snapshot(root, &issue_id);
+    let path = manifest_file(
+        root,
+        json!([{
+            "op":"update", "id":issue_id, "title":new_text,
+            "description":new_text, "issue_type":new_text, "notes":new_text,
+            "if_revision":before.issue["revision"]
+        }]),
+    );
+    for subcommand in ["dry-run", "commit"] {
+        let output = manifest(root, subcommand, &path);
+        assert_success(&output);
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        for matched in [&old_text, &new_text] {
+            assert!(!stdout.contains(matched));
+            assert!(!String::from_utf8_lossy(&output.stderr).contains(matched));
+        }
+        let report: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(report["semantic_changes"], 1);
+        let change = &report["results"][0];
+        assert_eq!(change["semantic_change"], true);
+        assert_eq!(change["outcome"], "updated");
+        for field in ["title", "description", "issue_type"] {
+            for side in ["before", "after"] {
+                assert_eq!(
+                    change["changes"][field][side], "[REDACTED:bead-rs]",
+                    "{field}.{side}"
+                );
+            }
+        }
+        assert_eq!(change["changes"]["notes_changed"], true);
+        assert!(change["changes"].get("notes").is_none());
+        if subcommand == "dry-run" {
+            assert_eq!(snapshot(root, &issue_id), before);
+        }
+    }
+    let after = stored_issue(root, &issue_id);
+    for field in ["title", "description", "issue_type", "notes"] {
+        assert_eq!(after[field], new_text, "{field}");
+    }
+    assert_eq!(
+        after["revision"].as_i64().unwrap(),
+        before.issue["revision"].as_i64().unwrap() + 1
+    );
 }
 
 #[test]
