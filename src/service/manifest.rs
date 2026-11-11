@@ -14,6 +14,7 @@
 use crate::error::{Error, Result};
 use crate::model::Issue;
 use crate::scan::{self, Field, ScanConfig, ScanReport};
+use crate::service::secret_boundary;
 use crate::store::WorkspaceConfig;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
