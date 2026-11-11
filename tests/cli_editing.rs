@@ -196,7 +196,7 @@ fn compound_edit_preserves_identity_extensions_and_related_records() {
     let issue_id = import_extended_issue(root);
     let blocker_id = create_issue(root, "Existing blocker");
     for arguments in [
-        vec!["label", "add", &issue_id, "kept-label"],
+        vec!["label", "add", &issue_id, "--label", "kept-label"],
         vec!["dep", "add", &issue_id, &blocker_id, "--kind", "blocks"],
         vec![
             "comment",
