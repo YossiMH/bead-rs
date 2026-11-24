@@ -2138,3 +2138,53 @@ for task coordination. Scotty's machine-local task data stays on the PC.
   remain pending in this entry. Preserve the original checkpoint and the
   earlier worktree and temporary-branch recovery instructions until root
   records those outcomes.
+
+## 2026-11-24 recovery after the cloud restart
+
+The recovered implementation is published in `YossiMH/bead-rs` on
+`task/bead-finish-20261124` at `24979aec5d19a48ab145daf24e2399397d9b4814`
+and `YossiMH/bead-me-up-scotty` on `task/scotty-finish-20261124` at
+`f47fd7adef41e989072d5fa8c39160681aa6fd2a`, before this documentation append.
+The staged Windows executable comes from
+`539cdd0b4c54665c2db01da08fdf9f3871f7148a`, with SHA-256
+`25a05bdfd8feaea92faf6827e9268e597d25432826f1082c7ebadc3af8658798`.
+Its retained Windows receipt confirms all 55 native checks passed. The retained
+tray run confirms the real Exit action disposed the icon and stopped its server;
+the parent-loss check failed because the copied helper cache remained. That
+failure still needs diagnosis and a passing rerun. New cloud runs passed all
+32 launcher checks and all 161 adapter/editor checks, with raw output in the
+paths below. The complete browser, Windows tray and installed-default launcher
+checks remain pending. Installation has not run; Scotty's original 15 modified
+source files and machine-local task store remain preserved on the PC.
+
+The old `/workspace/scratch/51bd923093d4` worktrees and the later
+`/var/tmp/beads-20261124-3160` worktrees are gone. The earlier 37-task graph was
+never flushed and was not recovered; do not invent its IDs or cite deleted logs
+as retained.
+The independently reviewed continuation has 16 tasks and 24 blocking
+dependencies. Root is materializing it in
+`F:/Dev/.bead-edit-20261111/coordination-20261124`, using the original
+954-issue, 11,264-event checkpoint with store UUID
+`1c4f5d56-dcff-cbc5-ddf9-c536653c45f4`. Preserve the original source checkpoint
+through installation. Future agents must finish cleanup if this session stops:
+inspect Git status and remote commits, preserve uncommitted or unpublished work,
+then remove each clean, fully published worktree through Riftri using the
+commands below, without force. After retaining results, remove only task-owned
+temporary files and this task's exact registered Windows diagnostic task; keep
+rollback files and the shared parent directories. The task's Windows files are
+under `F:/Dev/.bead-edit-20261111`.
+
+| Location | Current use |
+| --- | --- |
+| `/workspace/library-files/beads-build-temporary-3160/worktrees/bead-completion` | Physical backend worktree, detached; `/workspace/scratch/3160e3ba3d24/worktrees/bead-completion` is its symlink |
+| `/workspace/scratch/3160e3ba3d24/worktrees/scotty-completion` | App worktree on `task/scotty-recovered-20261124`, published to `task/scotty-finish-20261124` |
+| `/workspace/scratch/3160e3ba3d24/bead-rs` and `/workspace/scratch/3160e3ba3d24/bead-me-up-scotty` | Parent clones for the registered worktrees |
+| `/workspace/scratch/3160e3ba3d24/coordination/plan.json` and `manifest.json` | Reviewed continuation instructions and native manifest |
+| `/workspace/scratch/3160e3ba3d24/coordination/results/scotty-launchers.log` and `scotty-adapter-editor.log` | Complete new cloud check output |
+| `F:/Dev/.bead-edit-20261111/native-results-v3/windows-native-smoke-5f2c9c6a00f24f4b8e803c81df22f3c9.json` | Retained passing native receipt |
+| `F:/Dev/.bead-edit-20261111/tray-results-v2/result.json` | Retained failed tray result and child-log references |
+
+```sh
+/workspace/scratch/3160e3ba3d24/tools/node_modules/.bin/riftri exec -- git -C /workspace/scratch/3160e3ba3d24/bead-rs worktree remove /workspace/library-files/beads-build-temporary-3160/worktrees/bead-completion
+/workspace/scratch/3160e3ba3d24/tools/node_modules/.bin/riftri exec -- git -C /workspace/scratch/3160e3ba3d24/bead-me-up-scotty worktree remove /workspace/scratch/3160e3ba3d24/worktrees/scotty-completion
+```
