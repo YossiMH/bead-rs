@@ -124,7 +124,10 @@ pub(crate) fn acquire(command: &Command) -> Result<Option<OperationGuard>> {
     loop {
         match file.try_lock_exclusive() {
             Ok(()) => break,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+            {
                 if Instant::now() >= deadline {
                     return Err(Error::DatabaseBusy(
                         "workspace operation lock busy; retry after the current writer finishes"

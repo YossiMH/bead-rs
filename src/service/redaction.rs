@@ -1716,7 +1716,10 @@ fn acquire_maintenance_lock(beads_dir: &Path) -> Result<MaintenanceLock, Redacti
     loop {
         match file.try_lock_exclusive() {
             Ok(()) => return Ok(MaintenanceLock { file }),
-            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+            Err(error)
+                if error.kind() == ErrorKind::WouldBlock
+                    || error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+            {
                 if Instant::now() >= deadline {
                     return Err(integrity("workspace maintenance lock is busy"));
                 }
