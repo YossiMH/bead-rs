@@ -13,7 +13,7 @@ protection rules still apply.
 bead update ID --title TEXT
 bead update ID --description TEXT | --description-file PATH | --clear-description
 bead update ID --priority N --reason TEXT
-bead update ID --issue-type TEXT
+bead update ID --issue-type TEXT | --issue-type-file PATH
 ```
 
 These fields may be combined with each other and with the existing status,
@@ -22,11 +22,17 @@ invocation is one atomic edit and increments the issue revision at most once.
 `--if-revision` and `--fencing-token` guard the complete edit.
 
 Description input accepts exactly one of inline text, a UTF-8 file, or the clear
-flag. A file path of `-` reads stdin. Description and notes files may be supplied
-together; at most one may consume stdin. Resolve text before scanning or opening
+flag. Issue type accepts exactly one of inline text or a UTF-8 file. A file path
+of `-` reads stdin. Description, notes and issue-type files may be supplied
+together; at most one may consume stdin. Reject conflicting sources before
+reading any file or stdin. Resolve text before scanning or opening
 the mutation transaction. Preserve exact Unicode, newlines and leading hyphens.
 An empty description or `--clear-description` stores an empty string. Empty
 notes retain the existing clear behavior.
+
+Issue-type files retain the native nonempty-string contract without an added
+length limit. Unreadable text input exits 1; invalid UTF-8 exits 2; an empty type
+exits 4. Each failure leaves the entire edit unapplied.
 
 Titles contain 1–4096 UTF-8 bytes. Description and notes contain at most 4 MiB.
 Priority is an integer from 0 through 4. Issue type is a nonempty string; native
@@ -105,10 +111,17 @@ change even when their displayed markers are equal. Notes retain the boolean `no
     "fields": ["title", "description", "priority", "issue_type", "notes", "status", "assignee"],
     "clear_description": true,
     "revision_guard": true,
-    "priority_reason_required": true
+    "priority_reason_required": true,
+    "issue_type_file": true
   }
 }
 ```
 
 Consumers must negotiate this document before enabling new fields. The schema
 guide and command help describe the same fields, guards and priority audit rule.
+The optional `issue_type_file` Boolean advertises file and stdin transport for
+the existing `issue_type` field. Its absence grants no new transport. The closed
+capability schema permits this property without requiring it, and older
+capability documents continue to validate and decode. The field-guide example
+and invariants describe that same optional declaration. Stored issue and
+manifest documents retain literal type text and have no file-path member.
