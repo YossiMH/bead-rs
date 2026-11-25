@@ -94,7 +94,7 @@ set/manifest-<gen>.json       generation manifest
 set/shard/<sha256>.jsonl      keyed-record shards (issues, receipts, outcomes, redactions)
 set/seg/<sha256>.jsonl        sealed event segments
 set/rec/<sha256>.jsonl        oversize records, referenced by shards and segments
-set/tail.jsonl                the one open event segment
+set/tail/<sha256>.jsonl       the generation-selected open event segment
 ```
 
 The `set/` tree is physically disjoint from the `objects/` and `manifests/`
@@ -181,11 +181,19 @@ sequences are contiguous across the whole concatenation.
 |---|---|---|
 | `SEG_SEAL` | 64 KiB | the tail above this after a publication seals |
 
+The logical open tail is also a content-addressed object. Each manifest's
+`tail.path` selects immutable bytes at `set/tail/<sha256>.jsonl`; appending
+writes a new object and leaves every current/previous generation's selected
+bytes intact. Readers continue accepting legacy `set/tail.jsonl` references.
+On the next publication the legacy file is retained unchanged while an
+outgoing pointer still selects it, then removed by ordinary structural
+retention. This does not change segment boundaries or the sealing threshold.
+
 ### 6.2 Seal rule
 
 A publication appends its new events to the tail. If the tail's post-append
-byte length exceeds `SEG_SEAL`, the tail **seals**: it is renamed to its
-content-addressed name `set/seg/<sha256>.jsonl`, recorded in the manifest as
+byte length exceeds `SEG_SEAL`, the tail **seals**: its bytes are published
+at the sealed-segment content address `set/seg/<sha256>.jsonl`, recorded in the manifest as
 a sealed segment with its sequence ranges, and a new empty tail opens in the
 same publication. A sealed segment is immutable for the life of the
 workspace: it is never appended to, rewritten, repacked, or re-split. The
@@ -264,8 +272,8 @@ orphan files that the next publication reaps.
 3. Write the new `current.json` to a `.tmp` sibling with the old pointer
    promoted to `previous.json`, fsync, then atomically rename it over
    `current.json`.
-4. Apply the structural deletions of section 7.3; remove the sealed tail's
-   old file.
+4. Apply the structural deletions of section 7.3. Remove an old tail object
+   only after neither retained pointer's manifest selects it.
 
 A crash before step 3 leaves the old generation authoritative; a crash after
 step 3 leaves the new one authoritative. Publication state is derived from
@@ -443,7 +451,8 @@ nor rejects them; their disposition is left to the human reviewer.
   sharded by ID prefix.
 - **Sealed segment**: an immutable, content-addressed, never-rewritten event
   file.
-- **Tail**: the single open event segment; the only mutable checkpoint file.
+- **Tail**: the logical open event segment; each generation selects immutable
+  tail bytes that remain available while a retained pointer refers to them.
 - **Split/merge**: the deterministic pair of rules keeping shards inside the
   sizing bounds as data grows and shrinks.
 - **New blob bytes**: the section 11 measurement of a publication's git cost.

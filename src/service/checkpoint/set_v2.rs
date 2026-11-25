@@ -254,8 +254,9 @@ fn pack_event_segments(line_bytes: &[usize], events: &[EventRecord]) -> Vec<(Vec
 /// immutable for the life of the workspace (spec 6.2), so their rows carry
 /// forward verbatim; the open tail is the next seal unit, which makes every
 /// seal boundary a publication boundary and the sealed bytes exactly the
-/// outgoing tail's bytes — the rename of spec 6.2, whose old file step 4 of
-/// the 7.4 procedure removes.
+/// outgoing tail's bytes, published at their sealed content address. Each
+/// retained generation keeps its selected tail bytes until structural
+/// retention releases them (spec 7.4).
 ///
 /// `None` when there is no set-v2 pointer yet, or when the recorded
 /// boundaries no longer describe the live stream — a deletion inside the
@@ -367,7 +368,7 @@ fn write_set_object(
     Ok((rel, hash))
 }
 
-/// Write a `set/` artifact at a fixed path (the tail), or a content-addressed
+/// Write a `set/` artifact at a generation path, or a content-addressed
 /// one, with the publication temp/rename/fsync discipline.
 fn write_set_file(
     checkpoint_dir: &Path,
@@ -598,9 +599,10 @@ pub(super) fn publish_set_v2_checkpoint(
             // Sealed segments carry forward immutably (spec 6.2); the open
             // tail is the next seal unit. It seals whole when this
             // publication's appends would push it past SEG_SEAL — so the
-            // sealed bytes are exactly the outgoing tail's bytes, the
-            // rename of spec 6.2 — or when it already exceeded SEG_SEAL by
-            // itself, so a repeated publication finishes the seal.
+            // sealed bytes are exactly the outgoing tail's bytes, published
+            // at their sealed content address. Retained pointers keep their
+            // selected tail bytes. A tail already above SEG_SEAL also seals,
+            // so a repeated publication finishes the seal.
             let new_bytes: usize = (prev.covered_end..event_line_bytes.len())
                 .map(|i| event_line_bytes[i] + 1)
                 .sum();
@@ -695,20 +697,21 @@ pub(super) fn publish_set_v2_checkpoint(
                 "origin_range": origin_range,
             }));
         } else {
-            // The one open tail; rewritten by every publication that has
-            // events at all, so its fixed path never content-addresses.
-            write_set_file(
+            // The logical open tail changes as events append, but a
+            // selected generation must keep its own bytes until retention
+            // releases it. Content-address the tail just like other objects;
+            // legacy set/tail.jsonl remains untouched while a pointer uses it.
+            let (rel, hash) = write_set_object(
                 checkpoint_dir,
-                "set/tail.jsonl",
+                "tail",
                 "tail",
                 &body,
                 changed_paths,
                 scratch_dir,
             )?;
-            let hash = format!("{:x}", Sha256::digest(&body));
-            referenced_paths.push("set/tail.jsonl".to_string());
+            referenced_paths.push(rel.clone());
             tail_row = Some(serde_json::json!({
-                "path": "set/tail.jsonl",
+                "path": rel,
                 "sha256": hash,
                 "byte_length": body.len(),
                 "event_count": members.len(),
@@ -1106,7 +1109,7 @@ pub(super) fn stage_set_v2_checkpoint(pointer_path: &Path) -> Result<super::Fore
                             seen_issue_ids: &mut std::collections::HashSet<String>,
                             seen_event_identities: &mut std::collections::HashSet<String>,
                             seen_receipt_ids: &mut std::collections::HashSet<String>,
-                            _seen_attempt_ids: &mut std::collections::HashSet<String>|
+                            seen_attempt_ids: &mut std::collections::HashSet<String>|
      -> Result<()> {
         // Digest before use (spec 13); the parse then reads the same bytes.
         read_verified_set_artifact(base, rel, sha, len)?;
@@ -1124,6 +1127,11 @@ pub(super) fn stage_set_v2_checkpoint(pointer_path: &Path) -> Result<super::Fore
         labels.extend(data.labels);
         events.extend(data.events);
         receipts.extend(data.receipts);
+        for outcome in &data.attempt_outcomes {
+            if !seen_attempt_ids.insert(outcome.attempt_id.clone()) {
+                bail!("Duplicate attempt ID: {}", outcome.attempt_id);
+            }
+        }
         attempt_outcomes.extend(data.attempt_outcomes);
         redaction.findings.extend(data.redaction.findings);
         redaction
