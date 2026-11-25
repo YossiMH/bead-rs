@@ -90,7 +90,10 @@ fn selected_generation_survives_append(legacy_fixed_tail: bool) {
         )
         .unwrap();
         assert_eq!(report["generation_id"], selected["generation_id"]);
-        assert_eq!(report["source_root_sha256"], selected["active_root"]["sha256"]);
+        assert_eq!(
+            report["source_root_sha256"],
+            selected["active_root"]["sha256"]
+        );
         assert_eq!(report["issues_restored"], selected["issue_count"]);
         assert_eq!(report["non_empty_override"], false);
         let verified_inventory = run(verified.path(), &["list", "--all", "--json"]).stdout;
@@ -132,7 +135,8 @@ fn selected_generation_survives_append(legacy_fixed_tail: bool) {
         fs::read(source.path().join(".beads/config.json")).unwrap(),
         original_config
     );
-    let new_manifest = read_json(&checkpoint.join(advanced["active_root"]["path"].as_str().unwrap()));
+    let new_manifest =
+        read_json(&checkpoint.join(advanced["active_root"]["path"].as_str().unwrap()));
     assert_ne!(new_manifest["tail"]["path"], manifest["tail"]["path"]);
     assert_eq!(
         new_manifest["segments"].as_array().unwrap().len(),
@@ -160,7 +164,10 @@ fn selected_generation_survives_append(legacy_fixed_tail: bool) {
     )
     .unwrap();
     assert_eq!(report["generation_id"], selected["generation_id"]);
-    assert_eq!(report["source_root_sha256"], selected["active_root"]["sha256"]);
+    assert_eq!(
+        report["source_root_sha256"],
+        selected["active_root"]["sha256"]
+    );
     assert_eq!(report["issues_restored"], selected["issue_count"]);
     assert_eq!(report["events_restored"], selected["event_count"]);
     assert_eq!(report["non_empty_override"], false);

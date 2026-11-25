@@ -1179,7 +1179,11 @@ fn set_v2_crash_ordering() {
     // seal exactly those bytes under their content address (spec 6.2
     // retains the selected tail until 7.4 step 4 can reap it).
     let mut old_tail_sha = sha256_file(
-        &checkpoint_dir.join(current_manifest(workspace)["tail"]["path"].as_str().unwrap()),
+        &checkpoint_dir.join(
+            current_manifest(workspace)["tail"]["path"]
+                .as_str()
+                .unwrap(),
+        ),
     );
     let mut sealed = false;
     for round in 0..240 {
@@ -1225,7 +1229,8 @@ fn set_v2_crash_ordering() {
         // The next round's outgoing tail: what its first flush will seal
         // if this round's appends left it under SEG_SEAL and the next one
         // crosses.
-        old_tail_sha = sha256_file(&checkpoint_dir.join(manifest["tail"]["path"].as_str().unwrap()));
+        old_tail_sha =
+            sha256_file(&checkpoint_dir.join(manifest["tail"]["path"].as_str().unwrap()));
     }
     assert!(sealed, "tail never sealed during the idempotency probe");
 }

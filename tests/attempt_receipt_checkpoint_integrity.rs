@@ -280,7 +280,10 @@ fn verified_restore_preserves_all_attempt_outcomes_from_set_v2() {
     );
     let report: Value = serde_json::from_slice(&output.stdout).expect("restore report");
     assert_eq!(report["generation_id"], pointer["generation_id"]);
-    assert_eq!(report["source_root_sha256"], pointer["active_root"]["sha256"]);
+    assert_eq!(
+        report["source_root_sha256"],
+        pointer["active_root"]["sha256"]
+    );
     assert_eq!(report["source_store_uuid"], pointer["store_uuid"]);
     assert_eq!(report["target_store_uuid"], pointer["store_uuid"]);
     assert_eq!(report["non_empty_override"], false);
