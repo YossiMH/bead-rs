@@ -817,7 +817,7 @@ pub(super) fn is_set_v2_artifact_path(path: &str) -> bool {
         && !path.ends_with('/')
 }
 
-/// Files currently on disk under the `set/` tree, for structural retention
+/// Slash-separated checkpoint-relative paths under `set/` for structural retention
 pub(super) fn enumerate_set_v2_artifacts(checkpoint_dir: &Path) -> Result<Vec<String>> {
     let set_dir = checkpoint_dir.join("set");
     let mut paths = Vec::new();
@@ -840,12 +840,17 @@ pub(super) fn enumerate_set_v2_artifacts(checkpoint_dir: &Path) -> Result<Vec<St
             if !file_type.is_file() || name.ends_with(".tmp") {
                 continue;
             }
-            let rel = entry
-                .path()
+            let path = entry.path();
+            let relative = path
                 .strip_prefix(checkpoint_dir)
-                .map_err(|e| anyhow!("set artifact escapes checkpoint dir: {}", e))?
-                .to_string_lossy()
-                .to_string();
+                .map_err(|e| anyhow!("set artifact escapes checkpoint dir: {}", e))?;
+            let mut rel = String::with_capacity(relative.as_os_str().len());
+            for component in relative.components() {
+                if !rel.is_empty() {
+                    rel.push('/');
+                }
+                rel.push_str(&component.as_os_str().to_string_lossy());
+            }
             paths.push(rel);
         }
     }

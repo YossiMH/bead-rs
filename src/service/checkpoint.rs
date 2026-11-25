@@ -7745,7 +7745,10 @@ fn acquire_checkpoint_publication_lock_within(
     loop {
         match file.try_lock_exclusive() {
             Ok(()) => return Ok(CheckpointPublicationLock { _file: file }),
-            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+            Err(e)
+                if e.kind() == ErrorKind::WouldBlock
+                    || e.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+            {
                 if std::time::Instant::now() >= deadline {
                     return Err(anyhow!(
                         "checkpoint publication lock busy: another publisher has held \
