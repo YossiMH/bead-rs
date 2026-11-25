@@ -1157,7 +1157,7 @@ fn set_v2_crash_ordering() {
         // The tail row verifies against the live tail bytes.
         let manifest: Value = serde_json::from_slice(&manifest_bytes).unwrap();
         if let Some(tail) = manifest.get("tail").filter(|t| !t.is_null()) {
-            let tail_bytes = fs::read(checkpoint_dir.join("set/tail.jsonl")).unwrap();
+            let tail_bytes = fs::read(checkpoint_dir.join(tail["path"].as_str().unwrap())).unwrap();
             assert_eq!(
                 format!("{:x}", Sha256::digest(&tail_bytes)),
                 tail["sha256"].as_str().unwrap(),
@@ -1177,8 +1177,10 @@ fn set_v2_crash_ordering() {
     // scenario's 240-round budget). Each round captures the outgoing
     // tail's bytes: the publication that finally crosses SEG_SEAL must
     // seal exactly those bytes under their content address (spec 6.2
-    // renames the tail; 7.4 step 4 removes the sealed tail's old file).
-    let mut old_tail_sha = sha256_file(&checkpoint_dir.join("set/tail.jsonl"));
+    // retains the selected tail until 7.4 step 4 can reap it).
+    let mut old_tail_sha = sha256_file(
+        &checkpoint_dir.join(current_manifest(workspace)["tail"]["path"].as_str().unwrap()),
+    );
     let mut sealed = false;
     for round in 0..240 {
         set_notes(
@@ -1223,7 +1225,7 @@ fn set_v2_crash_ordering() {
         // The next round's outgoing tail: what its first flush will seal
         // if this round's appends left it under SEG_SEAL and the next one
         // crosses.
-        old_tail_sha = sha256_file(&checkpoint_dir.join("set/tail.jsonl"));
+        old_tail_sha = sha256_file(&checkpoint_dir.join(manifest["tail"]["path"].as_str().unwrap()));
     }
     assert!(sealed, "tail never sealed during the idempotency probe");
 }

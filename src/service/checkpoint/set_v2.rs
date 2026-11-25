@@ -1284,4 +1284,117 @@ mod tests {
         assert_eq!(keyed_record_id(&epoch).unwrap(), "5ed7");
         assert_eq!(keyed_record_id(&tombstone).unwrap(), "73f2");
     }
+
+    fn attempt_payload(attempt_id: &str, receipt_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "$schema": "urn:bead-rs:schema:attempt-outcome:native-v1",
+            "attempt_id": attempt_id,
+            "issue_id": "fixture-issue",
+            "outcome": "verified_success",
+            "action": "none",
+            "reason": "preserve the complete receipt",
+            "canonical_request_hash": "a".repeat(64),
+            "resulting_issue_revision": 2,
+            "resulting_state": "in_progress",
+            "resulting_attempt_tier": 0,
+            "receipt_id": receipt_id,
+            "actor": "fixture-worker",
+            "created_at": "2026-11-25T00:00:00Z",
+            "evidence_refs": ["log:fixture"],
+            "model": "fixture-model",
+            "harness": "fixture-harness",
+            "harness_version": "1",
+            "future_field": {"note": "retained"}
+        })
+    }
+
+    fn attempt_checkpoint(
+        shards: &[Vec<serde_json::Value>],
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::TempDir::new().expect("checkpoint directory");
+        std::fs::create_dir_all(dir.path().join("set/shard")).expect("shard directory");
+        let mut rows = Vec::new();
+        for payloads in shards {
+            let mut bytes = Vec::new();
+            for payload in payloads {
+                bytes.extend(line("attempt_outcome", payload.clone()));
+                bytes.push(b'\n');
+            }
+            let sha = format!("{:x}", Sha256::digest(&bytes));
+            let path = format!("set/shard/{sha}.jsonl");
+            std::fs::write(dir.path().join(&path), &bytes).expect("shard");
+            rows.push(serde_json::json!({
+                "class": "attempt_outcome",
+                "path": path,
+                "sha256": sha,
+                "byte_length": bytes.len(),
+                "record_count": payloads.len()
+            }));
+        }
+        let manifest = serde_json::json!({
+            "format": "checkpoint-set-v2",
+            "schema_version": 1,
+            "store_uuid": "11111111-1111-4111-8111-111111111111",
+            "snapshot_sequence": 0,
+            "shards": rows,
+            "segments": [],
+            "tail": null
+        });
+        let bytes = serde_json::to_vec(&manifest).expect("manifest");
+        let sha = format!("{:x}", Sha256::digest(&bytes));
+        std::fs::write(dir.path().join("set/manifest-test.json"), bytes).expect("manifest file");
+        let pointer = dir.path().join("current.json");
+        std::fs::write(
+            &pointer,
+            serde_json::to_vec(&serde_json::json!({
+                "mode": "set-v2",
+                "active_root": {"path": "set/manifest-test.json", "sha256": sha}
+            }))
+            .expect("pointer"),
+        )
+        .expect("pointer file");
+        (dir, pointer)
+    }
+
+    #[test]
+    fn set_v2_staging_counts_attempt_outcomes_across_shards() {
+        let first = attempt_payload("urn:fixture:attempt:first", "ao-first");
+        let second = attempt_payload("urn:fixture:attempt:second", "ao-second");
+        let (_dir, pointer) = attempt_checkpoint(&[vec![second.clone()], vec![first.clone()]]);
+        let staging = stage_set_v2_checkpoint(&pointer).expect("stage two outcomes");
+        assert_eq!(staging.attempt_outcome_count, 2);
+        assert_eq!(
+            serde_json::to_value(&staging.attempt_outcomes).expect("outcomes"),
+            serde_json::json!([first, second]),
+            "staging must retain every field in canonical receipt order"
+        );
+    }
+
+    #[test]
+    fn set_v2_staging_rejects_duplicate_attempts_within_a_shard() {
+        let first = attempt_payload("urn:fixture:attempt:duplicate", "ao-first");
+        let second = attempt_payload("urn:fixture:attempt:duplicate", "ao-second");
+        let (_dir, pointer) = attempt_checkpoint(&[vec![first, second]]);
+        let error = stage_set_v2_checkpoint(&pointer).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Duplicate attempt ID: urn:fixture:attempt:duplicate"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn set_v2_staging_rejects_duplicate_attempts_across_shards() {
+        let first = attempt_payload("urn:fixture:attempt:duplicate", "ao-first");
+        let second = attempt_payload("urn:fixture:attempt:duplicate", "ao-second");
+        let (_dir, pointer) = attempt_checkpoint(&[vec![first], vec![second]]);
+        let error = stage_set_v2_checkpoint(&pointer).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Duplicate attempt ID: urn:fixture:attempt:duplicate"),
+            "{error}"
+        );
+    }
 }

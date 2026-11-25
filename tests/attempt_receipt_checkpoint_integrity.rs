@@ -212,3 +212,91 @@ fn public_schemas_describe_attempt_state_and_checkpoint_counts() {
         }
     }
 }
+
+fn stored_outcomes(path: &Path) -> Vec<Vec<rusqlite::types::Value>> {
+    let conn = Connection::open(path.join(".beads/beads.db")).expect("database");
+    let mut statement = conn
+        .prepare("SELECT * FROM attempt_outcomes ORDER BY receipt_id")
+        .expect("attempt query");
+    let columns = statement.column_count();
+    let rows = statement
+        .query_map([], |row| {
+            (0..columns)
+                .map(|column| row.get::<_, rusqlite::types::Value>(column))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .expect("attempt rows");
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .expect("attempt values")
+}
+
+#[test]
+fn verified_restore_preserves_all_attempt_outcomes_from_set_v2() {
+    let source = workspace();
+    configure(source.path(), "sharded");
+    let issue_id = create_issue(source.path());
+    insert_outcome(source.path(), &issue_id, "ao-first");
+    insert_outcome(source.path(), &issue_id, "ao-second");
+    let expected = stored_outcomes(source.path());
+    assert_eq!(expected.len(), 2);
+
+    Command::cargo_bin("bead")
+        .expect("bead binary")
+        .args(["sync", "flush-only"])
+        .current_dir(source.path())
+        .assert()
+        .success();
+    let checkpoint = source.path().join(".beads/checkpoint");
+    let pointer: Value = serde_json::from_slice(
+        &fs::read(checkpoint.join("current.json")).expect("current pointer"),
+    )
+    .expect("pointer JSON");
+    assert_eq!(pointer["mode"], "set-v2");
+    assert_eq!(pointer["attempt_outcome_count"], 2);
+    let generation = pointer["generation_id"].as_str().expect("generation");
+
+    let target = TempDir::new().expect("empty restore target");
+    let output = Command::cargo_bin("bead")
+        .expect("bead binary")
+        .args([
+            "--skip-foreign-workspace",
+            "restore",
+            "--source",
+            checkpoint.to_str().expect("checkpoint path"),
+            "--generation",
+            generation,
+            "--actor",
+            "attempt-recovery-test",
+            "--format",
+            "json",
+        ])
+        .current_dir(target.path())
+        .output()
+        .expect("restore command");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("restore report");
+    assert_eq!(report["generation_id"], pointer["generation_id"]);
+    assert_eq!(report["source_root_sha256"], pointer["active_root"]["sha256"]);
+    assert_eq!(report["source_store_uuid"], pointer["store_uuid"]);
+    assert_eq!(report["target_store_uuid"], pointer["store_uuid"]);
+    assert_eq!(report["non_empty_override"], false);
+    assert_eq!(report["displaced"]["attempt_outcomes"], 0);
+    assert_eq!(report["issues_restored"], 1);
+    assert_eq!(report["events_restored"], pointer["event_count"]);
+    assert_eq!(
+        report["provenance_receipts_restored"],
+        pointer["receipt_count"]
+    );
+    assert_eq!(stored_outcomes(target.path()), expected);
+    let restored_pointer: Value = serde_json::from_slice(
+        &fs::read(target.path().join(".beads/checkpoint/current.json"))
+            .expect("restored checkpoint pointer"),
+    )
+    .expect("restored pointer JSON");
+    assert_eq!(restored_pointer["attempt_outcome_count"], 2);
+    assert_eq!(stored_outcomes(source.path()), expected);
+}
