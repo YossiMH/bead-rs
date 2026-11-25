@@ -167,7 +167,14 @@ fn snapshot_checkpoint(checkpoint_dir: &Path) -> std::collections::BTreeMap<Stri
             if path.is_dir() {
                 walk(&path, format!("{prefix}{name}/"), out);
             } else {
-                out.insert(format!("{prefix}{name}"), fs::read(&path).unwrap());
+                let bytes = if prefix.is_empty() && name == "publish.lock" {
+                    // Windows denies reads while this empty coordination file is locked.
+                    assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+                    Vec::new()
+                } else {
+                    fs::read(&path).unwrap()
+                };
+                out.insert(format!("{prefix}{name}"), bytes);
             }
         }
     }

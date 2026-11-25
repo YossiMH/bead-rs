@@ -504,7 +504,7 @@ fn shard_split_on_update_storm(out_of_band: Option<&OutOfBandChange>) {
         .collect();
     assert!(live.len() >= 3, "target shard lacks three members");
     for id in live.iter().take(3) {
-        set_notes(workspace, id, &filler("storm", 40 * 1024));
+        set_notes_via_stdin(workspace, id, &filler("storm", 40 * 1024));
     }
     flush_ok(workspace);
 
@@ -586,7 +586,7 @@ fn set_v2_shard_merge_on_deletion() {
         .collect();
     assert!(live.len() >= 10, "target shard too small to drive a merge");
     for id in live.iter().take(3) {
-        set_notes(workspace, id, &filler("merge", 40 * 1024));
+        set_notes_via_stdin(workspace, id, &filler("merge", 40 * 1024));
     }
     flush_ok(workspace);
 
