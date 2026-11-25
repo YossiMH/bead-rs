@@ -233,7 +233,7 @@ fn missing_invalid_utf8_and_empty_files_leave_the_edit_unapplied() {
     for (name, code, message) in [
         ("missing.txt", 1, "cannot read text input"),
         ("invalid.txt", 2, "text input is not valid UTF-8"),
-        ("empty.txt", 4, "issue_type cannot be empty"),
+        ("empty.txt", 2, "issue_type cannot be empty"),
     ] {
         let output = file_update(root, &id, &root.join(name), &["--title", "must not save"]);
         assert_eq!(output.status.code(), Some(code), "{output:?}");

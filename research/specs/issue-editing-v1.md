@@ -32,7 +32,7 @@ notes retain the existing clear behavior.
 
 Issue-type files retain the native nonempty-string contract without an added
 length limit. Unreadable text input exits 1; invalid UTF-8 exits 2; an empty type
-exits 4. Each failure leaves the entire edit unapplied.
+exits 2. Each failure leaves the entire edit unapplied.
 
 Titles contain 1–4096 UTF-8 bytes. Description and notes contain at most 4 MiB.
 Priority is an integer from 0 through 4. Issue type is a nonempty string; native
