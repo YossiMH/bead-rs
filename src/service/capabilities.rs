@@ -99,6 +99,9 @@ pub struct IssueEditingCapabilities {
     pub revision_guard: bool,
     /// Supplying priority requires a nonblank audit reason.
     pub priority_reason_required: bool,
+    /// Issue types can be read from a UTF-8 file or stdin by update.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_type_file: Option<bool>,
 }
 
 /// JSON document shapes advertised to agent consumers.
@@ -285,6 +288,7 @@ pub fn generate_capabilities_with_secret_mode(
             clear_description: true,
             revision_guard: true,
             priority_reason_required: true,
+            issue_type_file: Some(true),
         }),
         priorities: Priorities {
             min: 0,

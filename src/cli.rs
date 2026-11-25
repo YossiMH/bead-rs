@@ -1145,6 +1145,7 @@ EXAMPLES:
   bead update ID --title \"Revised task\" --description-file details.txt
   bead update ID --priority 1 --reason \"Urgency reviewed\"
   bead update ID --issue-type investigation --clear-description
+  bead update ID --issue-type-file custom-type.txt
   cat investigation.txt | bead update ID --notes-file -
   bead update ID --clear-assignee                    # Clear assignment (open only)
   bead update ID --status in_progress --if-revision 3 # With revision guard
@@ -1159,6 +1160,8 @@ STATUS TRANSITIONS:
 EDITABLE FIELDS:
   Title, description, priority, issue type, notes, status and assignment.
   --description, --description-file and --clear-description are exclusive.
+  --issue-type and --issue-type-file are exclusive.
+  Only one of description, notes or issue type may read stdin.
   Empty description or notes values clear the corresponding text.
   --priority requires a nonblank --reason and records the actor and old/new
   priorities. An unchanged priority emits no priority event.
@@ -1251,6 +1254,10 @@ pub struct UpdateOptions {
     /// Replace the issue type with a nonempty native type name
     #[arg(long = "issue-type", allow_hyphen_values = true)]
     pub issue_type: Option<String>,
+
+    /// Read the issue type from a UTF-8 file, or stdin with -
+    #[arg(long = "issue-type-file", value_name = "PATH")]
+    pub issue_type_file: Option<std::path::PathBuf>,
 
     /// Near-miss trap: labels are managed by 'bead label add|remove', not
     /// by update.

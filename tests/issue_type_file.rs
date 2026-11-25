@@ -52,7 +52,14 @@ fn workspace() -> (tempfile::TempDir, String) {
     assert_success(&run(root.path(), &["init", "--prefix", "type"]));
     let created = json_output(
         root.path(),
-        &["create", "--title", "Type input", "--issue-type", "task", "--json"],
+        &[
+            "create",
+            "--title",
+            "Type input",
+            "--issue-type",
+            "task",
+            "--json",
+        ],
     );
     (root, created["id"].as_str().unwrap().to_owned())
 }
@@ -125,7 +132,14 @@ fn long_unicode_file_commits_one_guarded_edit_and_preserves_claim() {
     assert_eq!(after.0["notes"], "notes\r\nשורה\n");
     assert_eq!(after.0["priority"], 1);
     assert_eq!(after.0["revision"], revision + 1);
-    for field in ["id", "title", "created_at", "assignee", "claim_epoch", "base_status"] {
+    for field in [
+        "id",
+        "title",
+        "created_at",
+        "assignee",
+        "claim_epoch",
+        "base_status",
+    ] {
         assert_eq!(after.0[field], before.0[field], "{field}");
     }
     let events = after.1.as_array().unwrap();
@@ -166,7 +180,12 @@ fn inline_and_file_conflict_before_reading_the_file() {
     let (workspace, id) = workspace();
     let root = workspace.path();
     let before = snapshot(root, &id);
-    let output = file_update(root, &id, &root.join("missing.txt"), &["--issue-type", "inline"]);
+    let output = file_update(
+        root,
+        &id,
+        &root.join("missing.txt"),
+        &["--issue-type", "inline"],
+    );
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stderr).contains("mutually exclusive"));
     assert_eq!(snapshot(root, &id), before);
@@ -188,8 +207,9 @@ fn only_one_text_field_may_consume_stdin() {
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(2), "{output:?}");
-        assert!(String::from_utf8_lossy(&output.stderr)
-            .contains("only one text field may read stdin"));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("only one text field may read stdin")
+        );
         assert_eq!(snapshot(root, &id), before);
     }
     let output = file_update(
@@ -199,8 +219,7 @@ fn only_one_text_field_may_consume_stdin() {
         &["--notes-file", "-", "--description-file", "missing.txt"],
     );
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("only one text field may read stdin"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("only one text field may read stdin"));
     assert_eq!(snapshot(root, &id), before);
 }
 
@@ -218,7 +237,10 @@ fn missing_invalid_utf8_and_empty_files_leave_the_edit_unapplied() {
     ] {
         let output = file_update(root, &id, &root.join(name), &["--title", "must not save"]);
         assert_eq!(output.status.code(), Some(code), "{output:?}");
-        assert!(String::from_utf8_lossy(&output.stderr).contains(message), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(message),
+            "{output:?}"
+        );
         assert_eq!(snapshot(root, &id), before);
     }
 }
@@ -244,7 +266,12 @@ fn file_edits_enforce_revision_and_claim_guards_even_for_noops() {
     let output = file_update(root, &id, &path, &["--title", "must not save"]);
     assert_eq!(output.status.code(), Some(4), "{output:?}");
     assert_eq!(snapshot(root, &id), before);
-    let output = file_update(root, &id, &path, &["--fencing-token", &token, "--if-revision", "0"]);
+    let output = file_update(
+        root,
+        &id,
+        &path,
+        &["--fencing-token", &token, "--if-revision", "0"],
+    );
     assert_eq!(output.status.code(), Some(4), "{output:?}");
     assert_eq!(snapshot(root, &id), before);
 }
@@ -296,26 +323,46 @@ fn capability_schema_accepts_the_optional_type_transport() {
     assert_eq!(editing["issue_type_file"], true);
     let schema = json_output(
         root,
-        &["schema", "show", capabilities["schema_ref"].as_str().unwrap(), "--format", "json"],
+        &[
+            "schema",
+            "show",
+            capabilities["schema_ref"].as_str().unwrap(),
+            "--format",
+            "json",
+        ],
     );
     let editing_schema = &schema["properties"]["issue_editing"];
     assert_eq!(editing_schema["additionalProperties"], false);
-    assert_eq!(editing_schema["properties"]["issue_type_file"]["type"], "boolean");
+    assert_eq!(
+        editing_schema["properties"]["issue_type_file"]["type"],
+        "boolean"
+    );
     let required = editing_schema["required"].as_array().unwrap();
     assert_eq!(
         required,
-        json!(["version", "fields", "clear_description", "revision_guard", "priority_reason_required"])
-            .as_array()
-            .unwrap()
+        json!([
+            "version",
+            "fields",
+            "clear_description",
+            "revision_guard",
+            "priority_reason_required"
+        ])
+        .as_array()
+        .unwrap()
     );
     assert!(!required.contains(&json!("issue_type_file")));
     for field in editing.as_object().unwrap().keys() {
         assert!(editing_schema["properties"].get(field).is_some(), "{field}");
     }
     let mut previous = capabilities.clone();
-    previous["issue_editing"].as_object_mut().unwrap().remove("issue_type_file");
+    previous["issue_editing"]
+        .as_object_mut()
+        .unwrap()
+        .remove("issue_type_file");
     for field in required {
-        assert!(previous["issue_editing"].get(field.as_str().unwrap()).is_some());
+        assert!(previous["issue_editing"]
+            .get(field.as_str().unwrap())
+            .is_some());
     }
     let decoded: Capabilities = serde_json::from_value(previous).unwrap();
     let decoded = serde_json::to_value(decoded).unwrap();
@@ -344,7 +391,13 @@ fn stored_issue_and_manifest_keep_literal_type_text() {
     let root = workspace.path();
     let schema = json_output(
         root,
-        &["schema", "show", "urn:bead-rs:schema:issue:native-v1", "--format", "json"],
+        &[
+            "schema",
+            "show",
+            "urn:bead-rs:schema:issue:native-v1",
+            "--format",
+            "json",
+        ],
     );
     assert!(schema["properties"].get("issue_type_file").is_none());
     let manifest = root.join("manifest.json");

@@ -4,7 +4,7 @@
 .SH NAME
 bead update \- Update an issue
 .SH SYNOPSIS
-\fBbead update\fR [\fB\-\-status\fR] [\fB\-\-assignee\fR] [\fB\-\-clear\-assignee\fR] [\fB\-\-notes\fR] [\fB\-\-append\-notes\fR] [\fB\-\-notes\-file\fR] [\fB\-\-if\-revision\fR] [\fB\-\-fencing\-token\fR] [\fB\-\-dry\-run\fR] [\fB\-\-title\fR] [\fB\-\-description\fR] [\fB\-\-description\-file\fR] [\fB\-\-clear\-description\fR] [\fB\-\-priority\fR] [\fB\-\-reason\fR] [\fB\-\-issue\-type\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIID\fR>
+\fBbead update\fR [\fB\-\-status\fR] [\fB\-\-assignee\fR] [\fB\-\-clear\-assignee\fR] [\fB\-\-notes\fR] [\fB\-\-append\-notes\fR] [\fB\-\-notes\-file\fR] [\fB\-\-if\-revision\fR] [\fB\-\-fencing\-token\fR] [\fB\-\-dry\-run\fR] [\fB\-\-title\fR] [\fB\-\-description\fR] [\fB\-\-description\-file\fR] [\fB\-\-clear\-description\fR] [\fB\-\-priority\fR] [\fB\-\-reason\fR] [\fB\-\-issue\-type\fR] [\fB\-\-issue\-type\-file\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIID\fR>
 .SH DESCRIPTION
 Update issue fields atomically.
 .PP
@@ -22,6 +22,7 @@ EXAMPLES:
   bead update ID \-\-title "Revised task" \-\-description\-file details.txt
   bead update ID \-\-priority 1 \-\-reason "Urgency reviewed"
   bead update ID \-\-issue\-type investigation \-\-clear\-description
+  bead update ID \-\-issue\-type\-file custom\-type.txt
   cat investigation.txt | bead update ID \-\-notes\-file \-
   bead update ID \-\-clear\-assignee                    # Clear assignment (open only)
   bead update ID \-\-status in_progress \-\-if\-revision 3 # With revision guard
@@ -36,6 +37,8 @@ STATUS TRANSITIONS:
 EDITABLE FIELDS:
   Title, description, priority, issue type, notes, status and assignment.
   \-\-description, \-\-description\-file and \-\-clear\-description are exclusive.
+  \-\-issue\-type and \-\-issue\-type\-file are exclusive.
+  Only one of description, notes or issue type may read stdin.
   Empty description or notes values clear the corresponding text.
   \-\-priority requires a nonblank \-\-reason and records the actor and old/new
   priorities. An unchanged priority emits no priority event.
@@ -109,6 +112,9 @@ Nonblank explanation for the supplied priority
 .TP
 \fB\-\-issue\-type\fR \fI<ISSUE_TYPE>\fR
 Replace the issue type with a nonempty native type name
+.TP
+\fB\-\-issue\-type\-file\fR \fI<PATH>\fR
+Read the issue type from a UTF\-8 file, or stdin with \-
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

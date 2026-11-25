@@ -685,7 +685,8 @@ fn property_schema(kind: &str, name: &str) -> Value {
                 "fields":{"type":"array","uniqueItems":true,"items":{"type":"string","enum":["title","description","priority","issue_type","notes","status","assignee"]}},
                 "clear_description":{"type":"boolean"},
                 "revision_guard":{"type":"boolean"},
-                "priority_reason_required":{"type":"boolean"}
+                "priority_reason_required":{"type":"boolean"},
+                "issue_type_file":{"type":"boolean"}
             }
         }),
         ("capabilities", "attempt_outcome")
@@ -3092,10 +3093,12 @@ fn field_semantics(document: &str, name: &str) -> FieldSemantics {
             operations: &["capabilities"],
             has_default: false,
             default: Value::Null,
-            example: json!({"version":1,"fields":["title","description","priority","issue_type","notes","status","assignee"],"clear_description":true,"revision_guard":true,"priority_reason_required":true}),
+            example: json!({"version":1,"fields":["title","description","priority","issue_type","notes","status","assignee"],"clear_description":true,"revision_guard":true,"priority_reason_required":true,"issue_type_file":true}),
             invariants: &[
                 "version 1 names the exact supported update fields and guards",
                 "one edit is atomic across all supplied fields",
+                "issue_type_file true advertises --issue-type-file PATH or '-' for stdin; absence does not promise this transport",
+                "file text is scanned before editing and only one text field may read stdin",
                 "absence means consumers must retain the older restricted editing surface",
             ],
             common_mistake: "Enabling unsupported fields based only on the executable version.",

@@ -663,9 +663,20 @@ fn resolve_text_inputs(cli: &mut Cli) -> Result<()> {
                     "exactly one of --notes, --append-notes, or --notes-file may be supplied",
                 ));
             }
-            if opts.description_file.as_deref() == Some(std::path::Path::new("-"))
-                && opts.notes_file.as_deref() == Some(std::path::Path::new("-"))
-            {
+            if opts.issue_type.is_some() && opts.issue_type_file.is_some() {
+                return Err(Error::cli_usage(
+                    "--issue-type and --issue-type-file are mutually exclusive",
+                ));
+            }
+            let stdin_sources = [
+                opts.description_file.as_deref(),
+                opts.notes_file.as_deref(),
+                opts.issue_type_file.as_deref(),
+            ]
+            .into_iter()
+            .filter(|path| *path == Some(std::path::Path::new("-")))
+            .count();
+            if stdin_sources > 1 {
                 return Err(Error::cli_usage("only one text field may read stdin"));
             }
             if let Some(path) = opts.description_file.take() {
@@ -675,6 +686,9 @@ fn resolve_text_inputs(cli: &mut Cli) -> Result<()> {
             }
             if let Some(path) = opts.notes_file.take() {
                 opts.notes = Some(read_text_input(&path)?);
+            }
+            if let Some(path) = opts.issue_type_file.take() {
+                opts.issue_type = Some(read_text_input(&path)?);
             }
         }
         Command::Close(opts) => {
