@@ -1,22 +1,22 @@
 {
   "active_root": {
-    "path": "set/manifest-gen-e09b2a4118d7bb5f125c5294c0934514.json",
-    "sha256": "9b7297fe4c9563612975aad01c517d3080ba78ef4305040da1c79c5e1daa580b"
+    "path": "set/manifest-gen-b0dbb36610c8c0737ec852537da42eff.json",
+    "sha256": "25eb42214ef4f3635f161db8b728fbf270014d315f8da12640db1a025d953f97"
   },
   "added_paths": [],
   "attempt_outcome_count": 413,
-  "created_at": "2026-11-27T17:16:34.9433723Z",
+  "created_at": "2026-11-27T18:58:03.4107301Z",
   "deleted_paths": [],
-  "event_count": 11523,
+  "event_count": 11524,
   "format": "checkpoint-set-v2",
-  "generation_id": "gen-e09b2a4118d7bb5f125c5294c0934514",
+  "generation_id": "gen-b0dbb36610c8c0737ec852537da42eff",
   "issue_count": 1009,
   "mode": "set-v2",
   "receipt_count": 7,
   "redaction_record_count": 0,
   "replaced_paths": [],
   "schema_version": 1,
-  "snapshot_sequence": 11523,
+  "snapshot_sequence": 11524,
   "store_uuid": "1c4f5d56-dcff-cbc5-ddf9-c536653c45f4",
-  "total_record_count": 12952
+  "total_record_count": 12953
 }
