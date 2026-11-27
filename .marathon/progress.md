@@ -2800,3 +2800,44 @@ the exact leased ref deletions. Root updates this marked current-state
 section only after the corresponding outcomes and native task revisions
 have been independently reconciled.
 <!-- native-delivery-current-state:end -->
+
+### Completion readback — 2026-11-27 19:18:45 UTC
+
+Final acceptance: **Product, native history, checkpoint publication and cleanup accepted**. The accepted task readback
+is **55 of 55 closed and 0 open**.
+`preserve-and-clean` (`beadrs-3ec972f8`) is
+`closed` at revision
+`6`.
+[Task readback](https://github.com/YossiMH/bead-me-up-scotty/blob/0dd45a22d80272b58fe1631904888e29a648cb83/20261127/resumed-completion/final-history-close-actual/driver-result.json), SHA-256
+`d51e7f260b5fc7abd3eeee9a1456fee369be22e11ee9d61e340bb0f34d57eb60`.
+The 12:58:09 UTC 50/5 snapshot above remains the unchanged historical record.
+
+Original-store authority and corpus preservation:
+**The original F:/Dev/bead-rs workspace regained authority with all 1,009 issues, the original 954-issue corpus/history and 413 attempt outcomes preserved. The accepted initial Git finalizer completed generation gen-e09b2a4118d7bb5f125c5294c0934514, root 9b7297fe4c9563612975aad01c517d3080ba78ef4305040da1c79c5e1daa580b, and reports native_replayed=false. It took 38.859 seconds with a 378,179,584-byte aggregate peak. Native automatic Git staging on Windows hit argument-length error 206 for 397 paths; native checkpoint files remained durable. The operational finalizer staged the verified changes through stdin. [Accepted initial authority/finalization](https://github.com/YossiMH/bead-me-up-scotty/blob/013ad1de77f3cce7e697f647ce6e348925fc901e/20261127/resumed-completion/git-finalization-actual/actual-and-next-restore-review.json)**.
+[Final disposable restore](https://github.com/YossiMH/bead-me-up-scotty/blob/a8a86e2babfad5fd3a497b2e12e5716c0a4ba981/20261127/resumed-completion/final-history-restore-actual/driver-result.json), SHA-256
+`cedb7e8f42265963a96e3af45a7b8af598da894b421d3dacee837e2a3c7e1e02`.
+The final generation is `gen-b0dbb36610c8c0737ec852537da42eff`, with root SHA-256
+`25eb42214ef4f3635f161db8b728fbf270014d315f8da12640db1a025d953f97`.
+
+Checkpoint publication: **published and read back**.
+Native commit `ffe98e3a64082d1291577a437a0b48adc22201b3` and remote commit
+`ffe98e3a64082d1291577a437a0b48adc22201b3`; checkpoint tree
+`f4a6e82b81c9f052c707b7f68f4b55176e267e3d`.
+[Publication receipt](https://github.com/YossiMH/bead-me-up-scotty/blob/ee512189767fdef0050fcd03b03d4766f3678cb7/20261127/resumed-completion/final-native-publication-actual/driver-result.json), SHA-256
+`05369a73391023a060f3b816f91339d88477e6c62e5c536c41c819695832b547`.
+
+Owned scheduled tasks, caches, worktrees and disposable files:
+**All 23 exact scheduled-task registrations and four failed-run tray cache directories were removed, with private task XML and cache backups retained; the 19 recorded owner identities were absent. The continuation and earlier history-checkpoint-only worktrees were removed through Riftri without force. [Earlier worktree receipt](https://github.com/YossiMH/bead-me-up-scotty/blob/721dd65e4a83e6be256950728f622c2da36d9e52/20261127/checkpoint-only-handoff/worktree-publication-and-cleanup.json). Later disappearance of task temporary directories is recorded as environment-reset absence. Original files, frozen continuation source, published checkpoints, both interrupted restore packages, the retained v3 phase, rollback installation material, reconstructed cloud evidence and the final-restore-check verification directory remain retained. The accepted aggregate records the cleanup scope; the separately linked worktree and final restore receipts bind the additional observations**.
+[Cleanup and retained-path inventory](https://github.com/YossiMH/bead-me-up-scotty/blob/4bb1da1eca425790633fb5fdb7ccab7625f7f090/20261127/resumed-completion/cleanup-closure-preparation/cleanup-results-accepted.json), SHA-256
+`866424a608939f8021526fd8d2ba0dfeb60fb94755f2dc65550f1ae263e4e9d7`.
+Task-ref retention and deletion: **Exactly 86 Scotty task refs and two native task refs were deleted with explicit expected-tip leases and one atomic push per repository. The final remote readback contained no task refs in either repository; both mains were preserved. Founding archive commit 53f981bce9b13bc9c84d3138c9e99a26c0eb911d retained the final transfer 8dfbd35a460fb5f8da289e1ac26119cb213abfa3 and 31 additional parents covering every removed app tip. After both deletions were accepted, the archive advanced normally to descendant 08737e740b6445dcad2fc7a6d6ffb60adb987889 to retain their receipts. [Combined ref-cleanup review](https://github.com/YossiMH/bead-me-up-scotty/blob/08737e740b6445dcad2fc7a6d6ffb60adb987889/20261127/resumed-completion/task-ref-deletion-actual/combined-actual-review.json)**.
+Archive ref `refs/heads/archive/bead-editing-complete-20261127` at `79bc8a46ed1f878466b40906feff03a89490783f`.
+[Ref receipt](https://github.com/YossiMH/bead-me-up-scotty/blob/08737e740b6445dcad2fc7a6d6ffb60adb987889/20261127/resumed-completion/task-ref-deletion-actual/combined-actual-review.json), SHA-256
+`1d3d1157752e1206591a7a171957780fa65169bfc30c0b4dd9b6ef07fa61ea80`.
+
+Observed local/remote heads before this completion-text update:
+native `ffe98e3a64082d1291577a437a0b48adc22201b3` and app `b8caabf90652598f889f0b0bbc4e66d1b20a1877`.
+The [independent completion reconciliation](https://github.com/YossiMH/bead-me-up-scotty/blob/79bc8a46ed1f878466b40906feff03a89490783f/20261127/resumed-completion/final-native-publication-actual/actual-and-overall-review.json)
+has SHA-256 `39e7b4313f263a5a126967ad394e792a24a95a1fa417a8d3fb07cde1a1089f39`.
+Recovery bytes, failed-attempt records and published evidence remain subject
+to the exact retention inventory linked above.
